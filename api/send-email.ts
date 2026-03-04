@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { firstName, lastName, subject, message } = req.body;
+    const { firstName, lastName, email subject, message } = req.body;
 
     // Validierung der Eingaben
     if (!firstName || !lastName || !message) {
@@ -36,11 +36,13 @@ export default async function handler(req, res) {
     await transporter.sendMail({
       from: process.env.STRATO_EMAIL,
       to: "hello@khwebs.de",
+      replyTo: email,
       subject: `Kontaktanfrage: ${subject}`,
       html: `
         <h2>Neue Kontaktanfrage</h2>
-        <p><strong>Von:</strong> ${firstName} ${lastName}</p>
-        <p><strong>Thema:</strong> ${subject}</p>
+        <p>Von: <strong>${firstName} ${lastName}</strong></p>
+        <p>Email: <strong>(${email})</strong></p>
+        <p>Thema:<strong> ${subject}</strong></p>
         <hr />
         <p>${message.replace(/\n/g, "<br>")}</p>
       `,

@@ -3,7 +3,7 @@ import { MessageCircle, ArrowRight, Send } from "lucide-react";
 import { useState } from "react";
 
 const ContactSection = () => {
-  const [form, setForm] = useState({ firstName: "", lastName: "", subject: "", message: "" });
+  const [form, setForm] = useState({ firstName: "", lastName: "",email: "", subject: "", message: "" });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -25,6 +25,7 @@ const ContactSection = () => {
         body: JSON.stringify({
           firstName: form.firstName,
           lastName: form.lastName,
+          email: form.email,
           subject: form.subject,
           message: form.message,
         }),
@@ -119,6 +120,19 @@ const ContactSection = () => {
                     onChange={(e) => setForm({ ...form, lastName: e.target.value })}
                     className="w-full rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                     placeholder="Mustermann"
+                  />
+                </div>
+              </div>
+              <div>
+                <div>
+                  <label className="mb-1 block text-sm text-muted-foreground">E-Mail Adresse</label>
+                  <input
+                    type="email"
+                    required
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className="w-full rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    placeholder="ihre.mail@beispiel.de"
                   />
                 </div>
               </div>
