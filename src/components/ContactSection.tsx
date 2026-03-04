@@ -17,7 +17,6 @@ const ContactSection = () => {
     setError("");
 
     try {
-      // ✅ Wir rufen jetzt die lokale Vercel API Route auf statt Supabase
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: {
@@ -31,16 +30,28 @@ const ContactSection = () => {
         }),
       });
 
+      // --- SICHERUNG: Antwort zuerst als Text lesen ---
+      const responseText = await response.text();
+      console.log("Server Rohantwort:", responseText);
+
+      let data;
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.error("JSON Parse Fehler:", parseError);
+        throw new Error("Der Server hat keine gültige JSON-Antwort gesendet.");
+      }
+      // -----------------------------------------------
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Fehler beim Senden der E-Mail');
+        throw new Error(data.error || `Server-Fehler: ${response.status}`);
       }
 
       setSent(true);
       setForm({ firstName: "", lastName: "", subject: "", message: "" });
       setTimeout(() => setSent(false), 4000);
     } catch (err: any) {
-      console.error("Fehler beim Senden:", err);
+      console.error("Detaillierter Fehler beim Senden:", err);
       setError(err.message || "Nachricht konnte nicht gesendet werden. Bitte versuchen Sie es erneut.");
     } finally {
       setSending(false);

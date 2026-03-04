@@ -1,21 +1,14 @@
 import nodemailer from 'nodemailer';
 
-// Falls diese Zeile bei dir existiert: LÖSCHEN oder auf 'nodejs' ändern
-// export const config = { runtime: 'edge' }; 
-
-export default async function handler(req: any, res: any) {
-  // CORS Setup
-  res.setHeader('Access-Control-Allow-Credentials', true);
+export default async function handler(req, res) {
+  // CORS Header setzen
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+  // Vorab-Check für Browser (CORS)
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
@@ -24,6 +17,11 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { firstName, lastName, subject, message } = req.body;
+
+    // Validierung der Eingaben
+    if (!firstName || !lastName || !message) {
+      return res.status(400).json({ error: 'Bitte alle Pflichtfelder ausfüllen.' });
+    }
 
     const transporter = nodemailer.createTransport({
       host: "smtp.strato.de",
@@ -48,9 +46,12 @@ export default async function handler(req: any, res: any) {
       `,
     });
 
+    // WICHTIG: Explizite JSON Antwort senden
     return res.status(200).json({ success: true });
-  } catch (error: any) {
+
+  } catch (error) {
     console.error("SMTP Error:", error);
-    return res.status(500).json({ error: error.message });
+    // Sicherstellen, dass auch im Fehlerfall JSON kommt
+    return res.status(500).json({ error: error.message || 'Interner Serverfehler' });
   }
 }
