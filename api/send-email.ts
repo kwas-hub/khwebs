@@ -34,12 +34,13 @@ export default async function handler(req, res) {
     });
 
     await transporter.sendMail({
-      from: process.env.STRATO_EMAIL,
+      /*from: process.env.STRATO_EMAIL,*/
+      from: email,
       to: "hello@khwebs.de",
       replyTo: email,
-      subject: `Kontaktanfrage: ${subject}`,
+      subject: `Neue Anfrage: ${subject}`,
       html: `
-        <h2>Neue Kontaktanfrage</h2>
+        <h2>Neue Aktanfrage</h2>
         <p>Von: <strong>${firstName} ${lastName}</strong></p>
         <p>Email: <strong>(${email})</strong></p>
         <p>Thema:<strong> ${subject}</strong></p>

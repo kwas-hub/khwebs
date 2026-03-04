@@ -132,7 +132,7 @@ const ContactSection = () => {
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                     className="w-full rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                    placeholder="ihre.mail@beispiel.de"
+                    placeholder="Max.Mustermann@mail.de"
                   />
                 </div>
               </div>
