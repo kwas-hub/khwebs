@@ -34,8 +34,7 @@ export default async function handler(req, res) {
     });
 
     await transporter.sendMail({
-      /*from: process.env.STRATO_EMAIL,*/
-      from: email,
+      from: process.env.STRATO_EMAIL,
       to: "hello@khwebs.de",
       replyTo: email,
       subject: `Neue Anfrage: ${subject}`,
