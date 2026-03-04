@@ -1,7 +1,33 @@
 import { motion } from "framer-motion";
-import { Mail, ArrowRight } from "lucide-react";
+import { MessageCircle, ArrowRight, Send } from "lucide-react";
+import { useState } from "react";
 
 const ContactSection = () => {
+  const [form, setForm] = useState({ firstName: "", lastName: "", subject: "", message: "" });
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const whatsappNumber = "4915679715277";
+  const whatsappUrl = `https://wa.me/${whatsappNumber}`;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSending(true);
+
+    const mailtoSubject = encodeURIComponent(form.subject);
+    const mailtoBody = encodeURIComponent(
+      `Vorname: ${form.firstName}\nNachname: ${form.lastName}\n\n${form.message}`
+    );
+    window.location.href = `mailto:hello@khwebs.de?subject=${mailtoSubject}&body=${mailtoBody}`;
+
+    setTimeout(() => {
+      setSending(false);
+      setSent(true);
+      setForm({ firstName: "", lastName: "", subject: "", message: "" });
+      setTimeout(() => setSent(false), 4000);
+    }, 1000);
+  };
+
   return (
     <section id="kontakt" className="relative border-t border-border py-32">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,hsl(185_80%_55%/0.05)_0%,transparent_60%)]" />
@@ -21,18 +47,89 @@ const ContactSection = () => {
             wie ich Ihre Prozesse transformieren kann.
           </p>
 
-          <div className="mx-auto max-w-md space-y-4">
+          <div className="mx-auto max-w-md space-y-6">
             <a
-              href="mailto:hello@dev.io"
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="group flex items-center justify-center gap-3 rounded-md bg-primary px-8 py-4 font-medium text-primary-foreground transition-all hover:shadow-[0_0_30px_hsl(185_80%_55%/0.4)]"
             >
-              <Mail className="h-5 w-5" />
-              Erstgespräch vereinbaren
+              <MessageCircle className="h-5 w-5" />
+              WhatsApp Nachricht senden
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
             </a>
-            <p className="text-sm text-muted-foreground">
-              Oder direkt per E-Mail: <span className="font-mono text-primary">hello@dev.io</span>
-            </p>
+
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-sm text-muted-foreground">oder per Formular</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4 text-left">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-sm text-muted-foreground">Vorname</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    value={form.firstName}
+                    onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                    className="w-full rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    placeholder="Max"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-muted-foreground">Nachname</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    value={form.lastName}
+                    onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                    className="w-full rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    placeholder="Mustermann"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-muted-foreground">Thema</label>
+                <input
+                  type="text"
+                  required
+                  maxLength={200}
+                  value={form.subject}
+                  onChange={(e) => setForm({ ...form, subject: e.target.value })}
+                  className="w-full rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Digitalisierung, Automatisierung, ..."
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-muted-foreground">Nachricht</label>
+                <textarea
+                  required
+                  maxLength={2000}
+                  rows={4}
+                  value={form.message}
+                  onChange={(e) => setForm({ ...form, message: e.target.value })}
+                  className="w-full resize-none rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Beschreiben Sie kurz Ihr Anliegen..."
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={sending}
+                className="group flex w-full items-center justify-center gap-2 rounded-md border border-primary bg-transparent px-8 py-3 text-sm font-medium text-primary transition-all hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
+              >
+                <Send className="h-4 w-4" />
+                {sending ? "Wird gesendet..." : "Nachricht senden"}
+              </button>
+              {sent && (
+                <p className="text-center text-sm text-primary">
+                  ✓ Ihr E-Mail-Programm wurde geöffnet. Vielen Dank!
+                </p>
+              )}
+            </form>
           </div>
         </motion.div>
       </div>
