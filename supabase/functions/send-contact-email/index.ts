@@ -42,7 +42,7 @@ serve(async (req) => {
         to: ["hello@khwebs.de"],
         subject: `Kontaktanfrage: ${subject}`,
         html: `
-          <h2>Neue Kontaktanfrage</h2>
+          <h2>Kontaktanfrage</h2>
           <p><strong>Vorname:</strong> ${firstName}</p>
           <p><strong>Nachname:</strong> ${lastName}</p>
           <p><strong>Thema:</strong> ${subject}</p>
