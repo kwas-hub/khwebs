@@ -1,31 +1,43 @@
 import { motion } from "framer-motion";
 import { MessageCircle, ArrowRight, Send } from "lucide-react";
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 const ContactSection = () => {
   const [form, setForm] = useState({ firstName: "", lastName: "", subject: "", message: "" });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
 
   const whatsappNumber = "4915679715277";
   const whatsappUrl = `https://wa.me/${whatsappNumber}`;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
+    setError("");
 
-    const mailtoSubject = encodeURIComponent(form.subject);
-    const mailtoBody = encodeURIComponent(
-      `Vorname: ${form.firstName}\nNachname: ${form.lastName}\n\n${form.message}`
-    );
-    window.location.href = `mailto:hello@khwebs.de?subject=${mailtoSubject}&body=${mailtoBody}`;
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("send-contact-email", {
+        body: {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          subject: form.subject,
+          message: form.message,
+        },
+      });
 
-    setTimeout(() => {
-      setSending(false);
+      if (fnError) throw fnError;
+
       setSent(true);
       setForm({ firstName: "", lastName: "", subject: "", message: "" });
       setTimeout(() => setSent(false), 4000);
-    }, 1000);
+    } catch (err) {
+      console.error("Fehler beim Senden:", err);
+      setError("Nachricht konnte nicht gesendet werden. Bitte versuchen Sie es erneut.");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -126,7 +138,12 @@ const ContactSection = () => {
               </button>
               {sent && (
                 <p className="text-center text-sm text-primary">
-                  ✓ Ihr E-Mail-Programm wurde geöffnet. Vielen Dank!
+                  ✓ Nachricht erfolgreich gesendet. Vielen Dank!
+                </p>
+              )}
+              {error && (
+                <p className="text-center text-sm text-destructive">
+                  {error}
                 </p>
               )}
             </form>
