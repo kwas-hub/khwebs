@@ -1,26 +1,31 @@
-import { createTransport } from 'nodemailer';
+import nodemailer from 'nodemailer';
 
-export const config = {
-  runtime: 'edge', // Optional für schnellere Ausführung
-};
+// Falls diese Zeile bei dir existiert: LÖSCHEN oder auf 'nodejs' ändern
+// export const config = { runtime: 'edge' }; 
 
-export default async function handler(req: Request) {
-  // CORS Headers für die Kommunikation mit dem Frontend
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+export default async function handler(req: any, res: any) {
+  // CORS Setup
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers, status: 204 });
+    res.status(200).end();
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { firstName, lastName, subject, message } = await req.json();
+    const { firstName, lastName, subject, message } = req.body;
 
-    // Nutzt die Secrets, die du in Lovable/Vercel hinterlegt hast
-    const transporter = createTransport({
+    const transporter = nodemailer.createTransport({
       host: "smtp.strato.de",
       port: 465,
       secure: true,
@@ -43,14 +48,9 @@ export default async function handler(req: Request) {
       `,
     });
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: { ...headers, 'Content-Type': 'application/json' },
-    });
+    return res.status(200).json({ success: true });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...headers, 'Content-Type': 'application/json' },
-    });
+    console.error("SMTP Error:", error);
+    return res.status(500).json({ error: error.message });
   }
 }
