@@ -14,7 +14,7 @@ const HeroSection = () => {
           transition={{ duration: 0.8, delay: 0.2 }}
         >
           <p className="mb-6 font-mono text-sm tracking-widest text-primary">
-            FREELANCE IT CONSULTANT
+            Eng/IO | FREELANCE IT CONSULTANT
           </p>
         </motion.div>
 
