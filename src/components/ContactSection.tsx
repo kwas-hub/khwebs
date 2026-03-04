@@ -55,7 +55,7 @@ const ContactSection = () => {
             Bereit, Ihr Business <span className="text-gradient">voranzubringen</span>?
           </h2>
           <p className="mb-12 text-lg text-muted-foreground">
-            Lassen Sie uns in einem kostenlosen Erstgespräch herausfinden,
+            Lassen Sie uns in einem Erstgespräch herausfinden,
             wie ich Ihre Prozesse transformieren kann.
           </p>
 

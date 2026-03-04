@@ -56,7 +56,7 @@ const HeroSection = () => {
             onClick={() => document.getElementById("kontakt")?.scrollIntoView({ behavior: "smooth" })}
             className="rounded-md bg-primary px-8 py-3 font-medium text-primary-foreground transition-all hover:shadow-[0_0_30px_hsl(185_80%_55%/0.4)]"
           >
-            Kostenlos beraten lassen
+            Jetzt beraten lassen
           </button>
           <button
             onClick={() => document.getElementById("leistungen")?.scrollIntoView({ behavior: "smooth" })}
