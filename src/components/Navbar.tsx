@@ -14,7 +14,7 @@ const Navbar = () => {
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <button onClick={() => scrollTo("hero")} className="font-mono text-sm tracking-wider text-primary">
-          {"<"} dev.io {"/>"}
+          {"<"} eng.io {"/>"}
         </button>
         <div className="hidden items-center gap-8 md:flex">
           {["leistungen", "prozess", "kontakt"].map((item) => (
