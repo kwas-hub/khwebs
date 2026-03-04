@@ -27,7 +27,7 @@ const Datenschutz = () => {
           <div>
             <h2 className="mb-2 text-lg font-semibold text-foreground">2. Verantwortliche Stelle</h2>
             <p>
-              KH Webs<br />
+              khwebs digital<br />
               Musterstraße 1<br />
               12345 Musterstadt<br />
               E-Mail: hello@khwebs.de

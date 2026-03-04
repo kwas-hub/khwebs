@@ -41,7 +41,7 @@ export default async function handler(req, res) {
       html: `
         <h2>Neue Aktanfrage</h2>
         <p>Von: <strong>${firstName} ${lastName}</strong></p>
-        <p>Email: <strong>(${email})</strong></p>
+        <p>Email: <strong>${email}</strong></p>
         <p>Thema:<strong> ${subject}</strong></p>
         <hr />
         <p>${message.replace(/\n/g, "<br>")}</p>
