@@ -1,7 +1,6 @@
 import { motion } from "framer-motion";
 import { MessageCircle, ArrowRight, Send } from "lucide-react";
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 const ContactSection = () => {
   const [form, setForm] = useState({ firstName: "", lastName: "", subject: "", message: "" });
@@ -18,23 +17,31 @@ const ContactSection = () => {
     setError("");
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("send-contact-email", {
-        body: {
+      // ✅ Wir rufen jetzt die lokale Vercel API Route auf statt Supabase
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           firstName: form.firstName,
           lastName: form.lastName,
           subject: form.subject,
           message: form.message,
-        },
+        }),
       });
 
-      if (fnError) throw fnError;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Fehler beim Senden der E-Mail');
+      }
 
       setSent(true);
       setForm({ firstName: "", lastName: "", subject: "", message: "" });
       setTimeout(() => setSent(false), 4000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Fehler beim Senden:", err);
-      setError("Nachricht konnte nicht gesendet werden. Bitte versuchen Sie es erneut.");
+      setError(err.message || "Nachricht konnte nicht gesendet werden. Bitte versuchen Sie es erneut.");
     } finally {
       setSending(false);
     }
