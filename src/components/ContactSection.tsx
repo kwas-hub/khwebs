@@ -49,7 +49,7 @@ const ContactSection = () => {
       }
 
       setSent(true);
-      setForm({ firstName: "", lastName: "", subject: "", message: "" });
+      setForm({ firstName: "", lastName: "", email: "", subject: "", message: "" });
       setTimeout(() => setSent(false), 4000);
     } catch (err: any) {
       console.error("Detaillierter Fehler beim Senden:", err);
