@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  SidebarHeader, // Neu hinzugefügt
   useSidebar,
 } from "@/components/ui/sidebar";
 import { LayoutDashboard, Newspaper, CalendarDays, LogOut, ChevronRight } from "lucide-react";
@@ -30,6 +31,17 @@ function AdminNav() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border/40">
+      {/* 
+        FIX: SidebarHeader mit sr-only Inhalten für Screenreader.
+        Dies behebt den DialogTitle/Description Fehler im mobilen Modus.
+      */}
+      <SidebarHeader>
+        <div className="sr-only">
+          <h2>Admin Navigation</h2>
+          <p>Hauptmenü für die Verwaltung des Backends</p>
+        </div>
+      </SidebarHeader>
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="px-4 py-6 text-xs font-bold uppercase tracking-widest text-muted-foreground/60">
