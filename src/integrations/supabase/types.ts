@@ -14,6 +14,81 @@ export type Database = {
   }
   public: {
     Tables: {
+      appointments: {
+        Row: {
+          appointment_date: string
+          appointment_time: string
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          last_name: string
+          note: string | null
+          phone: string
+          salutation: string
+          status: Database["public"]["Enums"]["appointment_status"]
+          updated_at: string
+        }
+        Insert: {
+          appointment_date: string
+          appointment_time: string
+          created_at?: string
+          email: string
+          first_name: string
+          id?: string
+          last_name: string
+          note?: string | null
+          phone: string
+          salutation: string
+          status?: Database["public"]["Enums"]["appointment_status"]
+          updated_at?: string
+        }
+        Update: {
+          appointment_date?: string
+          appointment_time?: string
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          last_name?: string
+          note?: string | null
+          phone?: string
+          salutation?: string
+          status?: Database["public"]["Enums"]["appointment_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      availability_slots: {
+        Row: {
+          active: boolean
+          created_at: string
+          end_time: string
+          id: string
+          slot_minutes: number
+          start_time: string
+          weekday: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          end_time: string
+          id?: string
+          slot_minutes?: number
+          start_time: string
+          weekday: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          end_time?: string
+          id?: string
+          slot_minutes?: number
+          start_time?: string
+          weekday?: number
+        }
+        Relationships: []
+      }
       content_blocks: {
         Row: {
           content: string
@@ -44,6 +119,24 @@ export type Database = {
         }
         Relationships: []
       }
+      site_settings: {
+        Row: {
+          booking_enabled: boolean
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          booking_enabled?: boolean
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          booking_enabled?: boolean
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -70,6 +163,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_taken_slots: {
+        Args: { _from: string; _to: string }
+        Returns: {
+          appointment_date: string
+          appointment_time: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -80,6 +180,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      appointment_status: "pending" | "confirmed" | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -208,6 +309,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      appointment_status: ["pending", "confirmed", "cancelled"],
     },
   },
 } as const
