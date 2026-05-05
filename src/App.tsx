@@ -7,7 +7,9 @@ import Index from "./pages/Index";
 import Impressum from "./pages/Impressum";
 import Datenschutz from "./pages/Datenschutz";
 import Auth from "./pages/Auth";
-import Admin from "./pages/Admin";
+import Dashboard from "./pages/admin/Dashboard";
+import News from "./pages/admin/News";
+import Termine from "./pages/admin/Termine";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,7 +25,9 @@ const App = () => (
           <Route path="/impressum" element={<Impressum />} />
           <Route path="/datenschutz" element={<Datenschutz />} />
           <Route path="/auth" element={<Auth />} />
-          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin" element={<Dashboard />} />
+          <Route path="/admin/news" element={<News />} />
+          <Route path="/admin/termine" element={<Termine />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
