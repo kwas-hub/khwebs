@@ -1,23 +1,17 @@
 import { ReactNode, useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  SidebarHeader, // Neu hinzugefügt
-  useSidebar,
-} from "@/components/ui/sidebar";
-import { LayoutDashboard, Newspaper, CalendarDays, LogOut, ChevronRight } from "lucide-react";
+import { 
+  LayoutDashboard, 
+  Newspaper, 
+  CalendarDays, 
+  LogOut, 
+  Menu, 
+  X,
+  ShieldCheck
+} from "lucide-react";
 
 const items = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard, end: true },
@@ -25,70 +19,12 @@ const items = [
   { title: "Termine", url: "/admin/termine", icon: CalendarDays, end: false },
 ];
 
-function AdminNav() {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
-
-  return (
-    <Sidebar collapsible="icon" className="border-r border-border/40">
-      {/* 
-        FIX: SidebarHeader mit sr-only Inhalten für Screenreader.
-        Dies behebt den DialogTitle/Description Fehler im mobilen Modus.
-      */}
-      <SidebarHeader>
-        <div className="sr-only">
-          <h2>Admin Navigation</h2>
-          <p>Hauptmenü für die Verwaltung des Backends</p>
-        </div>
-      </SidebarHeader>
-
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="px-4 py-6 text-xs font-bold uppercase tracking-widest text-muted-foreground/60">
-            Backend Management
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="px-2 space-y-1">
-              {items.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild tooltip={item.title} className="h-10">
-                    <NavLink
-                      to={item.url}
-                      end={item.end}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 group relative
-                        ${isActive 
-                          ? "bg-primary/10 text-primary shadow-[inset_0px_0px_10px_rgba(var(--primary),0.05)]" 
-                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          <item.icon className={`h-5 w-5 shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? "text-primary" : ""}`} />
-                          {!collapsed && (
-                            <span className="font-medium flex-1">{item.title}</span>
-                          )}
-                          {isActive && !collapsed && (
-                            <div className="absolute left-0 w-1 h-5 bg-primary rounded-full" />
-                          )}
-                        </>
-                      )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-    </Sidebar>
-  );
-}
-
 const AdminLayout = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -109,54 +45,130 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
     init();
   }, [navigate]);
 
+  // Schließt mobiles Menü bei Navigation
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location]);
+
   const logout = async () => {
     await supabase.auth.signOut();
     navigate("/auth");
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center animate-pulse">Lade Admin-Bereich...</div>;
-  if (!isAdmin)
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
-        <div className="p-8 rounded-2xl border bg-card shadow-sm text-center">
-          <p className="text-muted-foreground mb-4">Du hast keinen Admin-Zugriff.</p>
-          <Button onClick={logout} variant="destructive">Logout</Button>
-        </div>
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-white animate-pulse">Initialisiere...</div>;
+  
+  if (!isAdmin) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-[#0a0a0a] text-white">
+      <div className="p-8 bg-zinc-900 border border-zinc-800 rounded-3xl text-center shadow-2xl">
+        <ShieldCheck className="w-12 h-12 mx-auto mb-4 text-red-500" />
+        <h1 className="text-xl font-bold">Kein Zugriff</h1>
+        <p className="text-zinc-400 mt-2">Du verfügst nicht über Admin-Rechte.</p>
+        <Button onClick={logout} className="mt-6 bg-white text-black hover:bg-zinc-200">Zurück zum Login</Button>
       </div>
-    );
+    </div>
+  );
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
-        <AdminNav />
-        <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-30 h-16 flex items-center justify-between border-b bg-background/80 backdrop-blur-md px-6">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="-ml-1 hover:bg-muted" />
-              <div className="h-4 w-[1px] bg-border" />
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="text-muted-foreground">Admin</span>
-                <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
-                <span>Übersicht</span>
-              </div>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={logout}
-              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            >
-              <LogOut className="mr-2 h-4 w-4" /> Abmelden
-            </Button>
-          </header>
-          <main className="flex-1 p-6 lg:p-8 max-w-7xl mx-auto w-full">
-            <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-              {children}
-            </div>
-          </main>
+    <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 flex flex-col md:flex-row">
+      
+      {/* --- DESKTOP SIDEBAR --- */}
+      <aside className="hidden md:flex flex-col w-72 p-6 border-r border-zinc-800/50 bg-[#0d0d0d]">
+        <div className="flex items-center gap-3 px-2 mb-10">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-primary-foreground" />
+          </div>
+          <span className="font-bold tracking-tight text-lg">Admin Panel</span>
         </div>
-      </div>
-    </SidebarProvider>
+
+        <nav className="flex-1 space-y-2">
+          {items.map((item) => (
+            <NavLink
+              key={item.url}
+              to={item.url}
+              end={item.end}
+              className={({ isActive }) => `
+                flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group
+                ${isActive 
+                  ? "bg-zinc-800 text-white shadow-lg shadow-black/20" 
+                  : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/50"}
+              `}
+            >
+              <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+              <span className="font-medium">{item.title}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="mt-auto pt-6 border-t border-zinc-800/50">
+          <button 
+            onClick={logout}
+            className="flex items-center gap-3 px-4 py-3 w-full rounded-2xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+          >
+            <LogOut className="w-5 h-5" />
+            <span className="font-medium">Abmelden</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* --- MOBILE HEADER --- */}
+      <header className="md:hidden h-16 flex items-center justify-between px-6 border-b border-zinc-800 bg-[#0d0d0d] sticky top-0 z-50">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-6 h-6 text-primary" />
+          <span className="font-bold">Admin</span>
+        </div>
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 hover:bg-zinc-800 rounded-xl transition-colors"
+        >
+          {isMobileMenuOpen ? <X /> : <Menu />}
+        </button>
+      </header>
+
+      {/* --- MOBILE NAV OVERLAY --- */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-40 bg-[#0a0a0a] md:hidden animate-in fade-in slide-in-from-top duration-300">
+          <nav className="flex flex-col gap-4 p-8 pt-24">
+            {items.map((item) => (
+              <NavLink
+                key={item.url}
+                to={item.url}
+                end={item.end}
+                className={({ isActive }) => `
+                  flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-semibold
+                  ${isActive ? "bg-zinc-800 text-white" : "text-zinc-500"}
+                `}
+              >
+                <item.icon className="w-6 h-6" />
+                {item.title}
+              </NavLink>
+            ))}
+            <button 
+              onClick={logout}
+              className="mt-10 flex items-center gap-4 px-6 py-4 rounded-2xl text-red-500 bg-red-500/10"
+            >
+              <LogOut className="w-6 h-6" />
+              Abmelden
+            </button>
+          </nav>
+        </div>
+      )}
+
+      {/* --- MAIN CONTENT --- */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-zinc-800/50 bg-[#0a0a0a]/50 backdrop-blur-xl">
+           <div className="flex items-center gap-4 text-sm text-zinc-400">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              Admin Mode Online
+           </div>
+        </header>
+
+        <div className="flex-1 p-6 md:p-10 overflow-auto">
+          <div className="max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {children}
+          </div>
+        </div>
+      </main>
+    </div>
   );
 };
 
