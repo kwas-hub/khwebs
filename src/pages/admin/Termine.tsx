@@ -65,8 +65,25 @@ const Termine = () => {
   };
 
   const updateApptStatus = async (id: string, status: Appt["status"]) => {
+    const appt = appts.find((a) => a.id === id);
     const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
-    if (error) toast.error(error.message); else load();
+    if (error) { toast.error(error.message); return; }
+    if (appt && (status === "confirmed" || status === "cancelled")) {
+      const { error: mailErr } = await supabase.functions.invoke("send-appointment-email", {
+        body: {
+          to: appt.email,
+          firstName: appt.first_name,
+          lastName: appt.last_name,
+          salutation: appt.salutation,
+          date: appt.appointment_date,
+          time: appt.appointment_time,
+          status,
+        },
+      });
+      if (mailErr) toast.error("Status gespeichert, E-Mail fehlgeschlagen: " + mailErr.message);
+      else toast.success(status === "confirmed" ? "Termin bestätigt – Mail gesendet" : "Termin abgelehnt – Mail gesendet");
+    }
+    load();
   };
   const deleteAppt = async (id: string) => {
     const { error } = await supabase.from("appointments").delete().eq("id", id);

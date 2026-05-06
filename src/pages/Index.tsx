@@ -5,6 +5,7 @@ import ProcessSection from "@/components/ProcessSection";
 import ContactSection from "@/components/ContactSection";
 import PublishedContent from "@/components/PublishedContent";
 import BookingSection from "@/components/BookingSection";
+import PublishedForms from "@/components/PublishedForms";
 import Footer from "@/components/Footer";
 
 const Index = () => {
@@ -16,6 +17,7 @@ const Index = () => {
       <ProcessSection />
       <PublishedContent />
       <BookingSection />
+      <PublishedForms />
       <ContactSection />
       <Footer />
     </div>

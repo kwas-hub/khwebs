@@ -10,13 +10,17 @@ import {
   LogOut, 
   Menu, 
   X,
-  ShieldCheck
+  ShieldCheck,
+  FileText,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { NotificationBell } from "@/components/admin/NotificationBell";
 
 const items = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard, end: true },
   { title: "Aktuelle News", url: "/admin/news", icon: Newspaper, end: false },
   { title: "Termine", url: "/admin/termine", icon: CalendarDays, end: false },
+  { title: "Formulare", url: "/admin/formulare", icon: FileText, end: false },
 ];
 
 const AdminLayout = ({ children }: { children: ReactNode }) => {
@@ -116,12 +120,16 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           <ShieldCheck className="w-6 h-6 text-primary" />
           <span className="font-bold">Admin</span>
         </div>
-        <button 
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 hover:bg-zinc-800 rounded-xl transition-colors"
-        >
-          {isMobileMenuOpen ? <X /> : <Menu />}
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <ThemeToggle />
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-2 hover:bg-zinc-800 rounded-xl transition-colors"
+          >
+            {isMobileMenuOpen ? <X /> : <Menu />}
+          </button>
+        </div>
       </header>
 
       {/* --- MOBILE NAV OVERLAY --- */}
@@ -155,8 +163,10 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
       {/* --- MAIN CONTENT --- */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-zinc-800/50 bg-[#0a0a0a]/50 backdrop-blur-xl">
-           <div className="flex items-center gap-4 text-sm text-zinc-400">
+        <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-zinc-800/50 bg-[#0a0a0a]/50 backdrop-blur-xl gap-2">
+           <NotificationBell />
+           <ThemeToggle />
+           <div className="flex items-center gap-4 text-sm text-zinc-400 ml-3">
               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
               Admin Mode Online
            </div>

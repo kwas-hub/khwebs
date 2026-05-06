@@ -119,6 +119,121 @@ export type Database = {
         }
         Relationships: []
       }
+      form_fields: {
+        Row: {
+          created_at: string
+          field_name: string
+          field_type: string
+          form_id: string
+          html_content: string
+          id: string
+          label: string
+          options: Json
+          placeholder: string
+          position: number
+          required: boolean
+        }
+        Insert: {
+          created_at?: string
+          field_name?: string
+          field_type: string
+          form_id: string
+          html_content?: string
+          id?: string
+          label?: string
+          options?: Json
+          placeholder?: string
+          position?: number
+          required?: boolean
+        }
+        Update: {
+          created_at?: string
+          field_name?: string
+          field_type?: string
+          form_id?: string
+          html_content?: string
+          id?: string
+          label?: string
+          options?: Json
+          placeholder?: string
+          position?: number
+          required?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_fields_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "forms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      form_submissions: {
+        Row: {
+          created_at: string
+          data: Json
+          form_id: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          form_id: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          form_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_submissions_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "forms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      forms: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          position: number
+          published: boolean
+          submit_label: string
+          success_message: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          id?: string
+          position?: number
+          published?: boolean
+          submit_label?: string
+          success_message?: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          position?: number
+          published?: boolean
+          submit_label?: string
+          success_message?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       site_settings: {
         Row: {
           booking_enabled: boolean
