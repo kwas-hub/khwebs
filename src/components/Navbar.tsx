@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const Navbar = () => {
   const scrollTo = (id: string) => {
@@ -27,12 +28,15 @@ const Navbar = () => {
             </button>
           ))}
         </div>
-        <button
-          onClick={() => scrollTo("kontakt")}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:shadow-[0_0_20px_hsl(185_80%_55%/0.3)]"
-        >
-          Projekt starten
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <button
+            onClick={() => scrollTo("kontakt")}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:shadow-[0_0_20px_hsl(185_80%_55%/0.3)]"
+          >
+            Projekt starten
+          </button>
+        </div>
       </div>
     </motion.nav>
   );
