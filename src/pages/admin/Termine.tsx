@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Clock, CalendarDays } from "lucide-react";
 
 const WEEKDAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
@@ -174,11 +174,11 @@ const Termine = () => {
             </div>
           </TabsContent>
 
-          <TabsContent value="list" className="space-y-3">
+          <TabsContent value="list" className="space-y-4">
             <div className="flex items-center gap-3">
               <Label>Filter:</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-48 bg-card"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Alle</SelectItem>
                   <SelectItem value="pending">Offen</SelectItem>
@@ -187,17 +187,15 @@ const Termine = () => {
                 </SelectContent>
               </Select>
             </div>
-            <Card className="overflow-x-auto bg-card border-border">
+
+            {/* Desktop Ansicht */}
+            <Card className="hidden md:block overflow-hidden bg-card border-border">
               <Table>
-                <TableHeader>
+                <TableHeader className="bg-muted/50">
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[120px]">Datum</TableHead>
-                    <TableHead className="w-[100px]">Zeit</TableHead>
-                    <TableHead className="w-[100px]">Anrede</TableHead>
-                    <TableHead>Vorname</TableHead>
-                    <TableHead>Nachname</TableHead>
-                    <TableHead>Telefon</TableHead>
-                    <TableHead>Email</TableHead>
+                    <TableHead className="w-[120px]">Datum/Zeit</TableHead>
+                    <TableHead className="w-[100px]">Person</TableHead>
+                    <TableHead>Kontakt</TableHead>
                     <TableHead className="w-[150px]">Status</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
@@ -205,62 +203,30 @@ const Termine = () => {
                 <TableBody>
                   {filteredAppts.map((a) => (
                     <TableRow key={a.id} className="hover:bg-muted/30">
-                      <TableCell>
-                        <Input 
-                          type="date" 
-                          className="h-8 bg-background border-none p-1" 
-                          value={a.appointment_date} 
-                          onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })}
-                        />
+                      <TableCell className="space-y-1">
+                        <Input type="date" className="h-7 text-[11px] bg-background border-none p-1" value={a.appointment_date} onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })} />
+                        <Input type="time" className="h-7 text-[11px] bg-background border-none p-1 font-bold" value={a.appointment_time.slice(0,5)} onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value })} />
                       </TableCell>
-                      <TableCell>
-                        <Input 
-                          type="time" 
-                          className="h-8 bg-background border-none p-1" 
-                          value={a.appointment_time.slice(0,5)} 
-                          onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value })}
-                        />
-                      </TableCell>
-                      <TableCell>
+                      <TableCell className="space-y-1">
                          <Select value={a.salutation} onValueChange={(v) => updateApptDetails(a.id, { salutation: v })}>
-                            <SelectTrigger className="h-8 bg-background border-none"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="h-7 text-[11px] bg-background border-none py-0 px-1"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="Herr">Herr</SelectItem>
                               <SelectItem value="Frau">Frau</SelectItem>
                             </SelectContent>
                          </Select>
+                        <Input className="h-7 text-xs bg-background" value={a.first_name} onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })} />
+                        <Input className="h-7 text-xs bg-background font-medium" value={a.last_name} onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })} />
                       </TableCell>
-                      <TableCell>
-                        <Input 
-                          className="h-8 bg-background" 
-                          value={a.first_name} 
-                          onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input 
-                          className="h-8 bg-background" 
-                          value={a.last_name} 
-                          onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input 
-                          className="h-8 bg-background" 
-                          value={a.phone} 
-                          onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input 
-                          className="h-8 bg-background" 
-                          value={a.email} 
-                          onChange={(e) => updateApptDetails(a.id, { email: e.target.value })}
-                        />
+                      <TableCell className="space-y-1">
+                        <Input className="h-7 text-xs bg-background" value={a.phone} onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })} />
+                        <Input className="h-7 text-xs bg-background" value={a.email} onChange={(e) => updateApptDetails(a.id, { email: e.target.value })} />
                       </TableCell>
                       <TableCell>
                         <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
-                          <SelectTrigger className="w-32 h-8 bg-background border-none"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className={`w-32 h-8 text-xs font-bold border-none shadow-none ${a.status === 'confirmed' ? 'text-green-600' : a.status === 'cancelled' ? 'text-destructive' : 'text-orange-500'}`}>
+                            <SelectValue />
+                          </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="pending">Offen</SelectItem>
                             <SelectItem value="confirmed">Bestätigt</SelectItem>
@@ -275,52 +241,101 @@ const Termine = () => {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {filteredAppts.length === 0 && (
-                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-6">Keine Termine.</TableCell></TableRow>
-                  )}
                 </TableBody>
               </Table>
             </Card>
+
+            {/* Mobile Ansicht */}
+            <div className="md:hidden space-y-3">
+              {filteredAppts.map((a) => (
+                <Card key={a.id} className="p-4 bg-card border-border space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2 font-bold">
+                      <CalendarDays className="h-4 w-4 text-primary" />
+                      {new Date(a.appointment_date).toLocaleDateString("de-DE")} - {a.appointment_time.slice(0,5)}
+                    </div>
+                    <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 -mt-1 -mr-1" onClick={() => deleteAppt(a.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground uppercase">Status</Label>
+                      <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
+                        <SelectTrigger className="h-8 bg-background border-none p-0 h-auto font-bold"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Offen</SelectItem>
+                          <SelectItem value="confirmed">Bestätigt</SelectItem>
+                          <SelectItem value="cancelled">Abgesagt</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground uppercase">Name</Label>
+                      <div className="font-medium">{a.first_name} {a.last_name}</div>
+                    </div>
+                  </div>
+                  <div className="space-y-1 pt-2 border-t border-border">
+                    <div className="text-xs">{a.email}</div>
+                    <div className="text-xs text-muted-foreground">{a.phone}</div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+            {filteredAppts.length === 0 && <p className="text-center py-10 text-muted-foreground">Keine Termine vorhanden.</p>}
           </TabsContent>
 
           <TabsContent value="availability" className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Lege fest, wann Termine angefragt werden können.</p>
-              <Button onClick={addSlot}><Plus className="mr-2 h-4 w-4" />Zeitfenster</Button>
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" />
+                <h3 className="font-bold">Verfügbare Zeitfenster</h3>
+              </div>
+              <Button onClick={addSlot} size="sm"><Plus className="mr-2 h-4 w-4" />Neues Fenster</Button>
             </div>
+
             <div className="grid gap-3">
               {slots.map((s) => (
-                <Card key={s.id} className="p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end bg-card border-border">
-                  <div>
-                    <Label>Wochentag</Label>
-                    <Select value={String(s.weekday)} onValueChange={(v) => updateSlot(s.id, { weekday: Number(v) })}>
-                      <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {WEEKDAYS.map((d, i) => <SelectItem key={i} value={String(i)}>{d}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                <Card key={s.id} className={`p-4 transition-all border-l-4 ${s.active ? 'border-l-primary bg-card' : 'border-l-muted bg-muted/20 opacity-70'} border-border`}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-muted-foreground">Wochentag</Label>
+                      <Select value={String(s.weekday)} onValueChange={(v) => updateSlot(s.id, { weekday: Number(v) })}>
+                        <SelectTrigger className="bg-background border-border h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {WEEKDAYS.map((d, i) => <SelectItem key={i} value={String(i)}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-muted-foreground">Von</Label>
+                      <Input className="bg-background h-9" type="time" value={s.start_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { start_time: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-muted-foreground">Bis</Label>
+                      <Input className="bg-background h-9" type="time" value={s.end_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { end_time: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase font-bold text-muted-foreground text-nowrap">Slot (Min)</Label>
+                      <Input className="bg-background h-9" type="number" min={5} step={5} value={s.slot_minutes} onChange={(e) => updateSlot(s.id, { slot_minutes: Number(e.target.value) })} />
+                    </div>
+                    <div className="flex items-center gap-2 pb-2 h-9">
+                      <Switch checked={s.active} onCheckedChange={(v) => updateSlot(s.id, { active: v })} id={`active-${s.id}`} />
+                      <Label htmlFor={`active-${s.id}`} className="text-xs font-bold">{s.active ? "Aktiv" : "Inaktiv"}</Label>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button variant="ghost" size="icon" className="text-destructive h-9 w-9 hover:bg-destructive/10" onClick={() => deleteSlot(s.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div>
-                    <Label>Von</Label>
-                    <Input className="bg-background" type="time" value={s.start_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { start_time: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Bis</Label>
-                    <Input className="bg-background" type="time" value={s.end_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { end_time: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Dauer (Min)</Label>
-                    <Input className="bg-background" type="number" min={5} step={5} value={s.slot_minutes} onChange={(e) => updateSlot(s.id, { slot_minutes: Number(e.target.value) })} />
-                  </div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Switch checked={s.active} onCheckedChange={(v) => updateSlot(s.id, { active: v })} />
-                    <Label>Aktiv</Label>
-                  </div>
-                  <Button variant="destructive" size="sm" onClick={() => deleteSlot(s.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </Card>
               ))}
+              {slots.length === 0 && (
+                <div className="text-center py-10 border-2 border-dashed border-border rounded-xl text-muted-foreground">
+                  Keine Zeitfenster definiert. Füge eines hinzu, um Buchungen zu ermöglichen.
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
