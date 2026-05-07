@@ -240,44 +240,69 @@ const Formulare = () => {
 
                     <div className="space-y-4">
                       {fields.map((f, index) => (
-                        <Card key={f.id} className="p-4 space-y-4 bg-muted/20 border-border group">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="flex flex-col gap-0.5 mr-2">
-                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === 0} onClick={() => moveField(index, 'up')}><ChevronUp className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === fields.length - 1} onClick={() => moveField(index, 'down')}><ChevronDown className="h-4 w-4" /></Button>
+                        <Card key={f.id} className="overflow-hidden border-border bg-card shadow-sm group">
+                          {/* Feld-Header: Steuerung und Metadaten */}
+                          <div className="flex items-center justify-between bg-muted/30 px-4 py-2 border-b">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center bg-background border rounded-md overflow-hidden">
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-none border-r" disabled={index === 0} onClick={() => moveField(index, 'up')}><ChevronUp className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-none" disabled={index === fields.length - 1} onClick={() => moveField(index, 'down')}><ChevronDown className="h-4 w-4" /></Button>
                               </div>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 uppercase tracking-widest">{f.field_type}</span>
-                              <span className="text-[10px] font-mono text-muted-foreground">name=<strong className="text-foreground">{f.field_name}</strong></span>
-                              <span className="text-[10px] font-mono text-muted-foreground">id=<strong className="text-foreground">{f.id.slice(0, 8)}</strong></span>
-                              <label className="flex items-center gap-1 text-[10px] ml-2"><input type="checkbox" checked={f.required} onChange={(e) => updateField(f.id, { required: e.target.checked })} /> Pflicht</label>
+                              <Badge variant="secondary" className="text-[10px] uppercase tracking-wider font-bold px-2 py-0">{f.field_type}</Badge>
+                              <code className="text-[10px] text-muted-foreground hidden sm:inline-block">ID: {f.field_name}</code>
                             </div>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
+                            
+                            <div className="flex items-center gap-4">
+                              <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none">
+                                <Switch className="h-4 w-7" checked={f.required} onCheckedChange={(v) => updateField(f.id, { required: v })} />
+                                Pflicht
+                              </label>
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
+                            </div>
                           </div>
 
-                          {f.field_type === "html" ? (
-                            <Textarea className="font-mono text-xs bg-zinc-950 text-green-500 rounded-lg p-4" rows={8} value={f.html_content} onChange={(e) => updateField(f.id, { html_content: e.target.value })} />
-                          ) : (
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Label</Label><Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
-                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Platzhalter</Label><Input className="h-9" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
-                            </div>
-                          )}
-
-                          {(f.field_type === "radio" || f.field_type === "checkbox" || f.field_type === "select") && (
-                            <div className="space-y-2 pt-4 border-t">
-                              <Label className="text-[10px] font-bold uppercase">Optionen</Label>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {f.options.map((opt, idx) => (
-                                  <div key={idx} className="flex gap-2">
-                                    <Input className="h-8 bg-background text-sm" value={opt} onChange={(e) => updateOption(f.id, idx, e.target.value)} />
-                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeOption(f.id, idx)}><Trash2 className="h-3 w-3" /></Button>
-                                  </div>
-                                ))}
-                                <Button size="sm" variant="outline" className="h-8 text-[10px] font-bold uppercase" onClick={() => addOption(f.id)}>+ Option</Button>
+                          {/* Feld-Inhalt */}
+                          <div className="p-4">
+                            {f.field_type === "html" ? (
+                              <div className="space-y-2">
+                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">HTML / Script Inhalt</Label>
+                                <Textarea 
+                                  className="font-mono text-xs bg-zinc-950 text-emerald-500 rounded-md p-4 border-none focus-visible:ring-1 focus-visible:ring-emerald-500/50" 
+                                  rows={10} 
+                                  value={f.html_content} 
+                                  onChange={(e) => updateField(f.id, { html_content: e.target.value })} 
+                                  placeholder="<script>...</script>"
+                                />
                               </div>
-                            </div>
-                          )}
+                            ) : (
+                              <div className="grid sm:grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                  <Label className="text-[10px] font-bold uppercase text-muted-foreground">Label</Label>
+                                  <Input className="h-9 bg-muted/10 focus:bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label className="text-[10px] font-bold uppercase text-muted-foreground">Platzhalter</Label>
+                                  <Input className="h-9 bg-muted/10 focus:bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Optionen für Radio/Checkbox/Select */}
+                            {(f.field_type === "radio" || f.field_type === "checkbox" || f.field_type === "select") && (
+                              <div className="mt-4 pt-4 border-t border-dashed">
+                                <Label className="text-[10px] font-bold uppercase text-muted-foreground mb-2 block">Optionen</Label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {f.options.map((opt, idx) => (
+                                    <div key={idx} className="flex gap-1 items-center bg-muted/20 p-1 rounded-md">
+                                      <Input className="h-7 text-xs bg-transparent border-none focus-visible:ring-0" value={opt} onChange={(e) => updateOption(f.id, idx, e.target.value)} />
+                                      <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive/60 hover:text-destructive" onClick={() => removeOption(f.id, idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                                    </div>
+                                  ))}
+                                  <Button size="sm" variant="outline" className="h-7 border-dashed text-[10px] font-bold uppercase" onClick={() => addOption(f.id)}>+ Option hinzufügen</Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </Card>
                       ))}
                     </div>
