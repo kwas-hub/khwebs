@@ -110,7 +110,7 @@ const Formulare = () => {
       form_id: activeId, field_type: type, label: defaultLabel,
       field_name: generateIdFromLabel(defaultLabel), position: maxPos + 1, 
       options: type === "radio" || type === "checkbox" ? ["Option 1", "Andere"] : [],
-      html_content: type === "html" ? `<script>\n// Code\n</script>` : ""
+      html_content: type === "html" ? `<script>\n// Logik hier einfügen\n</script>` : ""
     });
     if (error) return toast.error(error.message);
     loadFields(activeId);
@@ -237,7 +237,7 @@ const Formulare = () => {
                             <Textarea className="font-mono text-xs bg-zinc-950 text-green-500 rounded-lg p-4" rows={8} value={f.html_content} onChange={(e) => updateField(f.id, { html_content: e.target.value })} />
                           ) : (
                             <div className="grid sm:grid-cols-2 gap-4">
-                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Label</Label><Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Label (ID)</Label><Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
                               <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Platzhalter</Label><Input className="h-9" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
                             </div>
                           )}
