@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Settings, FileText, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 type FieldType = "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "html";
@@ -75,42 +75,31 @@ const Formulare = () => {
     if (!activeId) return;
     const defaultLabel = type === "html" ? "HTML/Script" : "Neues Feld";
     
-    // Optimiertes Script-Template für den Form-Builder
+    // Stabileres Script-Template
     const scriptTemplate = `<script>
 (function() {
-  const initLogic = () => {
-    const radioName = 'auswahl'; // Der Name deines Radio-Feldes
-    const targetName = 'andere_auswahl'; // Der Name des Textfeldes
-    
+  const logic = () => {
+    const radioName = 'auswahl'; 
+    const targetName = 'andere_auswahl';
     const radios = document.querySelectorAll('input[name="' + radioName + '"]');
     const targetInput = document.querySelector('[name="' + targetName + '"]');
-    
     if (radios.length && targetInput) {
       const container = targetInput.closest('.form-field-container') || targetInput.parentElement;
-      
-      const toggle = () => {
-        const selected = document.querySelector('input[name="' + radioName + '"]:checked');
-        const show = selected && selected.value === 'Andere';
-        container.style.display = show ? 'block' : 'none';
+      const check = () => {
+        const sel = document.querySelector('input[name="' + radioName + '"]:checked');
+        container.style.display = (sel && sel.value === 'Andere') ? 'block' : 'none';
       };
-
-      document.addEventListener('change', (e) => {
-        if (e.target.name === radioName) toggle();
-      });
-      
-      toggle(); // Initialer Check
+      document.addEventListener('change', (e) => { if (e.target.name === radioName) check(); });
+      check();
     }
   };
-  setTimeout(initLogic, 500); // Kurzer Delay für das Rendering
+  setTimeout(logic, 600);
 })();
 </script>`;
 
     const { error } = await supabase.from("form_fields").insert({
-      form_id: activeId, 
-      field_type: type, 
-      label: defaultLabel,
-      field_name: generateIdFromLabel(defaultLabel),
-      position: fields.length, 
+      form_id: activeId, field_type: type, label: defaultLabel,
+      field_name: generateIdFromLabel(defaultLabel), position: fields.length, 
       options: type === "radio" || type === "checkbox" ? ["Option 1", "Andere"] : [],
       html_content: type === "html" ? scriptTemplate : ""
     });
@@ -119,9 +108,7 @@ const Formulare = () => {
   };
   
   const updateField = async (id: string, patch: Partial<Field>) => {
-    if (patch.label !== undefined) {
-      patch.field_name = generateIdFromLabel(patch.label);
-    }
+    if (patch.label !== undefined) patch.field_name = generateIdFromLabel(patch.label);
     setFields((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
     const { error } = await supabase.from("form_fields").update(patch).eq("id", id);
     if (error) toast.error(error.message);
@@ -160,7 +147,7 @@ const Formulare = () => {
     const updatedData = { ...sub.data, [key]: newValue };
     setSubs(prev => prev.map(s => s.id === submissionId ? { ...s, data: updatedData } : s));
     const { error } = await supabase.from("form_submissions").update({ data: updatedData }).eq("id", submissionId);
-    if (error) toast.error("Speichern fehlgeschlagen: " + error.message);
+    if (error) toast.error("Speichern fehlgeschlagen");
   };
 
   const deleteSubmission = async (id: string) => {
@@ -174,71 +161,64 @@ const Formulare = () => {
 
   return (
     <AdminLayout>
-      <div className="space-y-6 text-foreground">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <h1 className="text-3xl font-bold italic tracking-tight">Formular Management</h1>
-          <Button onClick={addForm} className="rounded-full shadow-lg transition-transform active:scale-95">
-            <Plus className="h-4 w-4 mr-2" />Neues Formular
-          </Button>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold">Formulare</h1>
+          <Button onClick={addForm}><Plus className="h-4 w-4 mr-2" />Neues Formular</Button>
         </div>
 
         <Tabs defaultValue="builder" className="w-full">
-          <TabsList className="bg-muted/50 border p-1 rounded-xl">
-            <TabsTrigger value="builder" className="rounded-lg">Builder</TabsTrigger>
-            <TabsTrigger value="submissions" className="rounded-lg">Eingaben ({subs.length})</TabsTrigger>
+          <TabsList className="bg-muted/50 border">
+            <TabsTrigger value="builder">Builder</TabsTrigger>
+            <TabsTrigger value="submissions">Eingaben ({subs.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="builder" className="space-y-4 mt-6">
             <div className="grid md:grid-cols-[280px_1fr] gap-6">
-              <Card className="p-4 space-y-2 h-fit bg-card border-border/60 shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 px-2">Deine Formulare</p>
-                {forms.length === 0 && <p className="text-sm text-muted-foreground p-2 italic">Keine Formulare vorhanden.</p>}
+              <Card className="p-3 space-y-1 h-fit bg-card border-border shadow-sm">
                 {forms.map((f) => (
                   <button key={f.id} onClick={() => setActiveId(f.id)}
-                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all ${activeId === f.id ? "bg-primary text-primary-foreground shadow-md" : "hover:bg-muted"}`}>
+                    className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-all ${activeId === f.id ? "bg-primary text-primary-foreground shadow-md" : "hover:bg-muted"}`}>
                     <div className="font-bold truncate">{f.title || "(Unbenannt)"}</div>
-                    <div className="text-[10px] opacity-70 mt-1 uppercase font-semibold">{f.published ? "● Öffentlich" : "○ Entwurf"}</div>
+                    <div className="text-[10px] opacity-70 mt-0.5">{f.published ? "Öffentlich" : "Entwurf"}</div>
                   </button>
                 ))}
               </Card>
 
               {activeForm && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                  <Card className="p-6 space-y-4 bg-card border-border/60 shadow-sm relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-5">
-                      <Settings className="w-20 h-20" />
-                    </div>
+                <div className="space-y-6">
+                  <Card className="p-6 space-y-4 border-border shadow-sm">
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <Label className="text-xs font-bold uppercase text-muted-foreground">Titel</Label>
-                        <Input className="bg-background rounded-lg border-border/50" value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} />
+                        <Input value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} />
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs font-bold uppercase text-muted-foreground">Button Text</Label>
-                        <Input className="bg-background rounded-lg border-border/50" value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} />
+                        <Input value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} />
                       </div>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold uppercase text-muted-foreground">Beschreibung</Label>
-                      <Textarea className="bg-background rounded-lg border-border/50" rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} />
+                      <Textarea rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} />
                     </div>
-                    <div className="flex items-center justify-between pt-4 border-t border-border/40">
-                      <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-between pt-4 border-t">
+                      <div className="flex items-center gap-3 text-sm font-medium">
                         <Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />
-                        <span className="text-sm font-medium">Öffentlich sichtbar</span>
+                        Öffentlich
                       </div>
-                      <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)} className="rounded-lg h-9">
-                        <Trash2 className="h-4 w-4 mr-2" />Formular löschen
+                      <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" />Löschen
                       </Button>
                     </div>
                   </Card>
 
-                  <Card className="p-6 space-y-6 bg-card border-border/60 shadow-sm">
-                    <div className="flex items-center justify-between border-b border-border/40 pb-4">
-                      <h3 className="font-bold text-lg tracking-tight">Formular Felder</h3>
-                      <div className="flex flex-wrap gap-1.5 justify-end">
+                  <Card className="p-6 space-y-6 border-border shadow-sm">
+                    <div className="flex items-center justify-between border-b pb-4">
+                      <h3 className="font-bold">Felder</h3>
+                      <div className="flex flex-wrap gap-1">
                         {(["text","number","email","textarea","radio","checkbox","html"] as FieldType[]).map((t) => (
-                          <Button key={t} size="sm" variant="secondary" onClick={() => addField(t)} className="h-8 text-[10px] font-bold uppercase tracking-wider rounded-md px-3">
+                          <Button key={t} size="sm" variant="secondary" onClick={() => addField(t)} className="h-7 text-[10px] font-bold uppercase">
                             + {t}
                           </Button>
                         ))}
@@ -247,50 +227,36 @@ const Formulare = () => {
 
                     <div className="space-y-4">
                       {fields.map((f) => (
-                        <Card key={f.id} className="p-4 space-y-4 bg-muted/30 border-border/40 group hover:border-primary/30 transition-colors">
+                        <Card key={f.id} className="p-4 space-y-4 bg-muted/20 border-border group">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 uppercase tracking-widest">{f.field_type}</span>
-                              <span className="text-[10px] font-mono text-muted-foreground bg-background px-2 py-0.5 rounded border border-border/50 italic">ID: {f.field_name}</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 uppercase tracking-widest">{f.field_type}</span>
+                              <span className="text-[10px] font-mono opacity-50">ID: {f.field_name}</span>
                             </div>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => deleteField(f.id)}>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive group-hover:opacity-100 opacity-0 transition-opacity" onClick={() => deleteField(f.id)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
 
                           {f.field_type === "html" ? (
-                            <div className="space-y-2">
-                              <Label className="text-[10px] font-bold uppercase text-muted-foreground">HTML / Javascript</Label>
-                              <Textarea className="font-mono text-xs bg-zinc-950 text-green-400 rounded-lg p-4 leading-relaxed scrollbar-thin" rows={10} value={f.html_content} onChange={(e) => updateField(f.id, { html_content: e.target.value })} />
-                            </div>
+                            <Textarea className="font-mono text-xs bg-zinc-950 text-green-500 rounded-lg p-4" rows={8} value={f.html_content} onChange={(e) => updateField(f.id, { html_content: e.target.value })} />
                           ) : (
-                            <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-300">
-                              <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Label (bestimmt ID)</Label>
-                                <Input className="h-9 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Platzhalter</Label>
-                                <Input className="h-9 bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} />
-                              </div>
+                            <div className="grid sm:grid-cols-2 gap-4">
+                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Label</Label><Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Platzhalter</Label><Input className="h-9" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
                             </div>
                           )}
 
                           {(f.field_type === "radio" || f.field_type === "checkbox") && (
-                            <div className="space-y-3 pt-4 border-t border-border/40">
-                              <Label className="text-[10px] font-bold uppercase text-muted-foreground">Optionen bearbeiten</Label>
+                            <div className="space-y-2 pt-4 border-t">
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {f.options.map((opt, idx) => (
-                                  <div key={idx} className="flex gap-2 animate-in zoom-in-95 duration-200">
+                                  <div key={idx} className="flex gap-2">
                                     <Input className="h-8 bg-background text-sm" value={opt} onChange={(e) => updateOption(f.id, idx, e.target.value)} />
-                                    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeOption(f.id, idx)}>
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
+                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeOption(f.id, idx)}><Trash2 className="h-3 w-3" /></Button>
                                   </div>
                                 ))}
-                                <Button size="sm" variant="outline" className="h-8 text-[10px] font-bold uppercase border-dashed" onClick={() => addOption(f.id)}>
-                                  + Option
-                                </Button>
+                                <Button size="sm" variant="outline" className="h-8 text-[10px] font-bold uppercase" onClick={() => addOption(f.id)}>+ Option</Button>
                               </div>
                             </div>
                           )}
@@ -302,7 +268,58 @@ const Formulare = () => {
               )}
             </div>
           </TabsContent>
-          {/* Submission content remains unchanged based on prompt constraints */}
+
+          <TabsContent value="submissions" className="mt-6">
+            <Card className="overflow-hidden bg-card border-border">
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader className="bg-muted/50 text-[11px] uppercase font-bold tracking-wider">
+                    <TableRow>
+                      <TableHead>Datum</TableHead>
+                      <TableHead>Formular</TableHead>
+                      <TableHead>Daten</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {subs.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{new Date(s.created_at).toLocaleString("de-DE")}</TableCell>
+                        <TableCell className="font-bold text-sm">{forms.find(f => f.id === s.form_id)?.title || "—"}</TableCell>
+                        <TableCell>
+                          <div className="grid lg:grid-cols-2 gap-2">
+                            {Object.entries(s.data).map(([k, v]) => (
+                              <div key={k} className="flex flex-col gap-1 p-2 bg-muted/30 rounded-lg">
+                                <span className="text-[9px] font-bold uppercase text-muted-foreground">{k}</span>
+                                <Input className="h-7 text-xs bg-background" value={String(v)} onChange={(e) => updateSubmissionData(s.id, k, e.target.value)} />
+                              </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell><Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}><Trash2 className="h-4 w-4" /></Button></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="md:hidden divide-y">
+                {subs.map((s) => (
+                  <div key={s.id} className="p-4 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold uppercase text-muted-foreground">{new Date(s.created_at).toLocaleString("de-DE")}</span>
+                      <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                    {Object.entries(s.data).map(([k, v]) => (
+                      <div key={k} className="space-y-1">
+                        <Label className="text-[10px] font-bold uppercase">{k}</Label>
+                        <Input className="h-8 text-sm" value={String(v)} onChange={(e) => updateSubmissionData(s.id, k, e.target.value)} />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </AdminLayout>
