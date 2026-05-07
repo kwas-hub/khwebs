@@ -11,10 +11,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning, Calendar, Clock } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning, Calendar, Clock, LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { EmailTemplateEditor } from "@/components/admin/EmailTemplateEditor";
 import { useUserRole } from "@/hooks/useUserRole";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type FieldType = "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "select" | "html";
 type Field = {
@@ -30,12 +31,16 @@ const generateIdFromLabel = (label: string) =>
 const FIELD_TYPES: FieldType[] = ["text", "number", "email", "textarea", "radio", "checkbox", "select", "html"];
 
 const Formulare = () => {
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isEditor } = useUserRole();
   const [forms, setForms] = useState<Form[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
   const [subs, setSubs] = useState<Submission[]>([]);
   const [submissionFilterForm, setSubmissionFilterForm] = useState<string>("all");
+
+  // Zustände für Kalender/Termin Dialog (aus dem vorherigen Kontext übernommen)
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingAppt, setEditingAppt] = useState<any>(null);
 
   const loadForms = async () => {
     const { data } = await supabase.from("forms").select("*").order("position").order("created_at");
@@ -174,6 +179,24 @@ const Formulare = () => {
     const { error } = await supabase.from("form_submissions").delete().eq("id", id);
     if (error) return toast.error(error.message);
     loadSubs();
+  };
+
+  const saveAppt = async () => {
+    // Wenn der Termin neu ist (keine ID) und ein Buchungsformular simuliert wird oder im Titel steht:
+    // Hier stellen wir sicher, dass bei manueller Erstellung die Logik greift
+    const apptToSave = { ...editingAppt };
+    
+    // Bedingung: Wenn es über ein Buchungsformular kommt (logische Trennung hier beispielhaft über 'source' oder Check)
+    // Falls manuell im Kalender erstellt (keine ID beim Öffnen), Titel auf "Anfrage" setzen falls gewünscht:
+    if (!apptToSave.id && apptToSave.title === "") {
+        apptToSave.title = "Anfrage";
+    }
+
+    const { error } = await supabase.from("appointments").upsert(apptToSave);
+    if (error) return toast.error(error.message);
+    toast.success("Gespeichert");
+    setDialogOpen(false);
+    // loadAppts(); // Methode zum Neuladen der Kalendertermine
   };
 
   const activeForm = forms.find((f) => f.id === activeId);
@@ -343,7 +366,7 @@ const Formulare = () => {
                         )}
                       </div>
 
-                      {/* Notiz - Spalte 4 (Wie im Bild rot markiert) */}
+                      {/* Notiz - Spalte 4 */}
                       <div className="lg:w-48 flex-shrink-0">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Notiz</div>
                         <Textarea 
@@ -413,6 +436,75 @@ const Formulare = () => {
             </TabsContent>
           )}
         </Tabs>
+
+        {/* ============= TERMIN DIALOG ============= */}
+        <Dialog open={dialogOpen} onOpenChange={(v) => { setDialogOpen(v); if (!v) setEditingAppt(null); }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingAppt?.id ? "Termin bearbeiten" : "Neuer Termin"}</DialogTitle>
+            </DialogHeader>
+            {editingAppt && (
+              <div className="grid gap-3 py-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <Label>Titel</Label>
+                    <Input 
+                      placeholder="Anfrage" 
+                      value={editingAppt.title || ""} 
+                      onChange={(e) => setEditingAppt({ ...editingAppt, title: e.target.value })} 
+                    />
+                  </div>
+                  <div><Label>Datum</Label><Input type="date" value={editingAppt.appointment_date || ""} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_date: e.target.value })} /></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label>Von</Label><Input type="time" value={(editingAppt.appointment_time || "").slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_time: e.target.value })} /></div>
+                    <div><Label>Bis</Label><Input type="time" value={(editingAppt.end_time || "").toString().slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, end_time: e.target.value })} /></div>
+                  </div>
+                  
+                  {/* Diese Felder werden NUR angezeigt, wenn der Termin eine ID hat (also bereits existiert / über Formular kam) */}
+                  {editingAppt.id && (
+                    <>
+                      <div><Label>Anrede</Label>
+                        <Select value={editingAppt.salutation || "_none"} onValueChange={(v) => setEditingAppt({ ...editingAppt, salutation: v === "_none" ? "" : v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">—</SelectItem>
+                            <SelectItem value="Herr">Herr</SelectItem>
+                            <SelectItem value="Frau">Frau</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div><Label>Vorname</Label><Input value={editingAppt.first_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, first_name: e.target.value })} /></div>
+                      <div><Label>Nachname</Label><Input value={editingAppt.last_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, last_name: e.target.value })} /></div>
+                      <div><Label>Telefon</Label><Input value={editingAppt.phone || ""} onChange={(e) => setEditingAppt({ ...editingAppt, phone: e.target.value })} /></div>
+                      <div><Label>E-Mail</Label><Input value={editingAppt.email || ""} onChange={(e) => setEditingAppt({ ...editingAppt, email: e.target.value })} /></div>
+                    </>
+                  )}
+
+                  <div><Label>Status</Label>
+                    <Select value={editingAppt.status || "pending"} onValueChange={(v) => setEditingAppt({ ...editingAppt, status: v as any })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Offen</SelectItem>
+                        <SelectItem value="confirmed">Bestätigt</SelectItem>
+                        <SelectItem value="cancelled">Abgesagt</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Farbe</Label><Input type="color" value={editingAppt.color || "#0ea5b7"} onChange={(e) => setEditingAppt({ ...editingAppt, color: e.target.value })} /></div>
+                  <div className="col-span-2"><Label>Notiz</Label><Textarea value={editingAppt.note || ""} onChange={(e) => setEditingAppt({ ...editingAppt, note: e.target.value })} /></div>
+                  <div className="col-span-2 flex items-center gap-2 pt-2">
+                    <Switch checked={editingAppt.public_visible || false} onCheckedChange={(v) => setEditingAppt({ ...editingAppt, public_visible: v })} />
+                    <Label>Veröffentlichen (für andere User sichtbar)</Label>
+                  </div>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Abbrechen</Button>
+              <Button onClick={saveAppt}>Speichern</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );
