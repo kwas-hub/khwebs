@@ -89,15 +89,27 @@ const Formulare = () => {
     if (!activeId) return;
     const defaultLabel = type === "html" ? "HTML/Script" : "Neues Feld";
     const maxPos = fields.length > 0 ? Math.max(...fields.map(f => f.position)) : -1;
+    
+    // Wir fangen den Fehler hier explizit ab, um eine hilfreiche Meldung zu geben
     const { error } = await supabase.from("form_fields").insert({
-      form_id: activeId, field_type: type, label: defaultLabel,
-      field_name: generateIdFromLabel(defaultLabel), position: maxPos + 1,
-      options: type === "radio" || type === "checkbox" || type === "select" ? ["Option 1", "Option 2"] : [],
+      form_id: activeId, 
+      field_type: type, 
+      label: defaultLabel,
+      field_name: generateIdFromLabel(defaultLabel), 
+      position: maxPos + 1,
+      options: ["radio", "checkbox", "select"].includes(type) ? ["Option 1", "Option 2"] : [],
       html_content: type === "html" ? `<script>\n// Logik hier einfügen\n</script>` : ""
     });
-    if (error) return toast.error(error.message);
+
+    if (error) {
+        if (error.message.includes("form_fields_field_type_check")) {
+            return toast.error("Datenbank-Fehler: Der Typ 'select' ist in der Datenbank noch nicht erlaubt. Bitte das SQL-Script ausführen.");
+        }
+        return toast.error(error.message);
+    }
     loadFields(activeId);
   };
+
   const updateField = async (id: string, patch: Partial<Field>) => {
     if (patch.label !== undefined) patch.field_name = generateIdFromLabel(patch.label);
     setFields((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
@@ -123,7 +135,6 @@ const Formulare = () => {
     updateField(fieldId, { options: f.options.filter((_, i) => i !== index) });
   };
 
-  // ---------- Submissions ----------
   const updateSubmissionData = async (id: string, key: string, value: string) => {
     const sub = subs.find(s => s.id === id); if (!sub) return;
     const data = { ...sub.data, [key]: value };
@@ -138,7 +149,6 @@ const Formulare = () => {
     if (error) toast.error(error.message);
   };
 
-  // E-Mail aus Submission-Daten extrahieren
   const findEmail = (sub: Submission): string | null => {
     for (const v of Object.values(sub.data)) {
       if (typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return v;
@@ -192,7 +202,6 @@ const Formulare = () => {
             {isAdmin && <TabsTrigger value="emails">E-Mail-Vorlagen</TabsTrigger>}
           </TabsList>
 
-          {/* ============= BUILDER ============= */}
           <TabsContent value="builder" className="space-y-4 mt-6">
             <div className="grid md:grid-cols-[280px_1fr] gap-6">
               <Card className="p-3 space-y-1 h-fit bg-card border-border shadow-sm">
@@ -278,7 +287,7 @@ const Formulare = () => {
             </div>
           </TabsContent>
 
-          {/* ============= SUBMISSIONS ============= */}
+          {/* ... Restlicher Code für Submissions und Emails bleibt unverändert ... */}
           <TabsContent value="submissions" className="space-y-4 mt-6">
             <div className="flex items-center gap-3 flex-wrap">
               <Label>Formular:</Label>
@@ -341,7 +350,6 @@ const Formulare = () => {
             </div>
           </TabsContent>
 
-          {/* ============= EMAIL VORLAGEN ============= */}
           {isAdmin && (
             <TabsContent value="emails" className="space-y-4 mt-6">
               <div className="flex items-center gap-2">
