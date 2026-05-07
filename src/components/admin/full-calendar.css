@@ -1,0 +1,51 @@
+.fc-wrapper {
+  --fc-border-color: hsl(var(--border));
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: hsl(var(--muted) / 0.3);
+  --fc-list-event-hover-bg-color: hsl(var(--muted));
+  --fc-today-bg-color: hsl(var(--primary) / 0.08);
+  --fc-now-indicator-color: hsl(var(--primary));
+  color: hsl(var(--foreground));
+}
+.fc-wrapper .fc {
+  font-family: inherit;
+  font-size: 13px;
+}
+.fc-wrapper .fc .fc-toolbar-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.fc-wrapper .fc .fc-button {
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  text-transform: capitalize;
+  font-weight: 600;
+  padding: 6px 12px;
+  font-size: 12px;
+  box-shadow: none;
+}
+.fc-wrapper .fc .fc-button:hover { background: hsl(var(--muted)); }
+.fc-wrapper .fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc-wrapper .fc .fc-button-primary:not(:disabled):active {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.fc-wrapper .fc-col-header-cell-cushion,
+.fc-wrapper .fc-daygrid-day-number,
+.fc-wrapper .fc-timegrid-axis-cushion,
+.fc-wrapper .fc-timegrid-slot-label-cushion {
+  color: hsl(var(--foreground));
+  text-decoration: none;
+}
+.fc-wrapper .fc-daygrid-day.fc-day-today,
+.fc-wrapper .fc-timegrid-col.fc-day-today {
+  background: hsl(var(--primary) / 0.08);
+}
+.fc-wrapper .fc-event {
+  border-radius: 6px;
+  padding: 1px 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
