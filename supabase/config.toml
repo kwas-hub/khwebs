@@ -2,3 +2,6 @@ project_id = "xqzryrfizmdjfvnhnsrr"
 
 [functions.send-appointment-email]
 verify_jwt = false
+
+[functions.send-template-email]
+verify_jwt = false
