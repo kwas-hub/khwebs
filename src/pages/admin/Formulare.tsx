@@ -68,7 +68,9 @@ const Formulare = () => {
     if (!activeId) return;
     const { error } = await supabase.from("form_fields").insert({
       form_id: activeId, field_type: type, label: type === "html" ? "HTML/Script" : "Neues Feld",
-      field_name: slug(`feld_${fields.length + 1}`), position: fields.length, options: type === "radio" || type === "checkbox" ? ["Option 1"] : [],
+      field_name: slug(`feld_${fields.length + 1}`), position: fields.length, 
+      options: type === "radio" || type === "checkbox" ? ["Option 1"] : [],
+      html_content: type === "html" ? "<p>Ihr HTML hier...</p>" : ""
     });
     if (error) return toast.error(error.message);
     loadFields(activeId);
@@ -82,6 +84,28 @@ const Formulare = () => {
     const { error } = await supabase.from("form_fields").delete().eq("id", id);
     if (error) return toast.error(error.message);
     if (activeId) loadFields(activeId);
+  };
+
+  // Hilfsfunktion für Optionen (Radio/Checkbox)
+  const updateOption = (fieldId: string, index: number, value: string) => {
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return;
+    const newOptions = [...field.options];
+    newOptions[index] = value;
+    updateField(fieldId, { options: newOptions });
+  };
+
+  const addOption = (fieldId: string) => {
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return;
+    updateField(fieldId, { options: [...field.options, `Option ${field.options.length + 1}`] });
+  };
+
+  const removeOption = (fieldId: string, index: number) => {
+    const field = fields.find(f => f.id === fieldId);
+    if (!field || field.options.length <= 1) return;
+    const newOptions = field.options.filter((_, i) => i !== index);
+    updateField(fieldId, { options: newOptions });
   };
 
   // --- Submissions (Eingaben) Editier-Logik ---
@@ -164,7 +188,7 @@ const Formulare = () => {
                       <h3 className="font-semibold">Felder</h3>
                       <div className="flex flex-wrap gap-1">
                         {(["text","number","email","textarea","radio","checkbox","html"] as FieldType[]).map((t) => (
-                          <Button key={t} size="sm" variant="outline" onClick={() => addField(t)} className="h-8">
+                          <Button key={t} size="sm" variant="outline" onClick={() => addField(t)} className="h-8 text-xs">
                             <Plus className="h-3 w-3 mr-1" />{t}
                           </Button>
                         ))}
@@ -179,11 +203,57 @@ const Formulare = () => {
                             <div className="flex-1" />
                             <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
                           </div>
-                          {f.field_type !== "html" && (
-                            <div className="grid sm:grid-cols-2 gap-2">
-                              <div><Label className="text-xs">Label</Label><Input className="h-8 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
-                              <div><Label className="text-xs">Platzhalter</Label><Input className="h-8 bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
+
+                          {f.field_type === "html" ? (
+                            <div className="space-y-1">
+                              <Label className="text-xs">HTML / Script Inhalt</Label>
+                              <Textarea 
+                                className="font-mono text-xs bg-background" 
+                                rows={6} 
+                                value={f.html_content} 
+                                onChange={(e) => updateField(f.id, { html_content: e.target.value })}
+                              />
                             </div>
+                          ) : (
+                            <>
+                              <div className="grid sm:grid-cols-2 gap-2">
+                                <div><Label className="text-xs">Label</Label><Input className="h-8 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                                <div><Label className="text-xs">Platzhalter</Label><Input className="h-8 bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
+                              </div>
+
+                              {(f.field_type === "radio" || f.field_type === "checkbox") && (
+                                <div className="space-y-2 pt-2 border-t border-border/50">
+                                  <Label className="text-xs font-semibold">Optionen</Label>
+                                  <div className="grid gap-2">
+                                    {f.options.map((opt, idx) => (
+                                      <div key={idx} className="flex gap-2">
+                                        <Input 
+                                          className="h-8 bg-background" 
+                                          value={opt} 
+                                          onChange={(e) => updateOption(f.id, idx, e.target.value)} 
+                                        />
+                                        <Button 
+                                          size="icon" 
+                                          variant="ghost" 
+                                          className="h-8 w-8 text-destructive" 
+                                          onClick={() => removeOption(f.id, idx)}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                    <Button 
+                                      size="sm" 
+                                      variant="ghost" 
+                                      className="h-7 text-[10px] w-fit" 
+                                      onClick={() => addOption(f.id)}
+                                    >
+                                      <Plus className="h-3 w-3 mr-1" /> Option hinzufügen
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
                           )}
                         </Card>
                       ))}
