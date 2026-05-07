@@ -27,61 +27,40 @@ const Formulare = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
   const [subs, setSubs] = useState<Submission[]>([]);
-  const [allFields, setAllFields] = useState<Field[]>([]); 
 
-  const loadData = async () => {
-    // Alles parallel laden um Performance zu optimieren
-    const [fRes, sRes, afRes] = await Promise.all([
-      supabase.from("forms").select("*").order("position").order("created_at"),
-      supabase.from("form_submissions").select("*").order("created_at", { ascending: false }),
-      supabase.from("form_fields").select("*")
-    ]);
-
-    if (fRes.data) {
-      setForms(fRes.data as Form[]);
-      if (!activeId && fRes.data.length > 0) setActiveId(fRes.data[0].id);
-    }
-    if (sRes.data) setSubs(sRes.data as Submission[]);
-    if (afRes.data) setAllFields(afRes.data as Field[]);
+  const loadForms = async () => {
+    const { data } = await supabase.from("forms").select("*").order("position").order("created_at");
+    setForms((data ?? []) as Form[]);
+    if (!activeId && data && data.length) setActiveId(data[0].id);
   };
-
   const loadFields = async (formId: string) => {
     const { data } = await supabase.from("form_fields").select("*").eq("form_id", formId).order("position");
     setFields((data ?? []).map((f: any) => ({ ...f, options: Array.isArray(f.options) ? f.options : [] })) as Field[]);
   };
-
-  useEffect(() => { loadData(); }, []);
-  useEffect(() => { if (activeId) loadFields(activeId); }, [activeId]);
-
-  // --- Formular Logik (Repariert) ---
-  const addForm = async () => {
-    const newForm = { 
-        title: "Neues Formular", 
-        position: forms.length,
-        submit_label: "Senden",
-        success_message: "Vielen Dank!",
-        published: false 
-    };
-    const { data, error } = await supabase.from("forms").insert(newForm).select().single();
-    
-    if (error) return toast.error("Fehler beim Erstellen: " + error.message);
-    toast.success("Formular erstellt");
-    await loadData(); 
-    setActiveId(data.id);
+  const loadSubs = async () => {
+    const { data } = await supabase.from("form_submissions").select("*").order("created_at", { ascending: false });
+    setSubs((data ?? []) as Submission[]);
   };
 
+  useEffect(() => { loadForms(); loadSubs(); }, []);
+  useEffect(() => { if (activeId) loadFields(activeId); }, [activeId]);
+
+  // --- Formular Logik ---
+  const addForm = async () => {
+    const { data, error } = await supabase.from("forms").insert({ title: "Neues Formular", position: forms.length }).select().single();
+    if (error) return toast.error(error.message);
+    await loadForms(); setActiveId(data.id);
+  };
   const updateForm = async (id: string, patch: Partial<Form>) => {
     setForms((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
     const { error } = await supabase.from("forms").update(patch).eq("id", id);
     if (error) toast.error(error.message);
   };
-
   const deleteForm = async (id: string) => {
     if (!confirm("Formular wirklich löschen?")) return;
     const { error } = await supabase.from("forms").delete().eq("id", id);
     if (error) return toast.error(error.message);
-    setActiveId(null); 
-    loadData();
+    setActiveId(null); loadForms();
   };
 
   // --- Felder Logik ---
@@ -93,41 +72,41 @@ const Formulare = () => {
     });
     if (error) return toast.error(error.message);
     loadFields(activeId);
-    loadData(); // allFields Cache aktualisieren
   };
-
   const updateField = async (id: string, patch: Partial<Field>) => {
     setFields((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
     const { error } = await supabase.from("form_fields").update(patch).eq("id", id);
     if (error) toast.error(error.message);
   };
-
   const deleteField = async (id: string) => {
     const { error } = await supabase.from("form_fields").delete().eq("id", id);
     if (error) return toast.error(error.message);
     if (activeId) loadFields(activeId);
   };
 
-  // --- Submissions Logik ---
+  // --- Submissions (Eingaben) Editier-Logik ---
   const updateSubmissionData = async (submissionId: string, key: string, newValue: string) => {
     const sub = subs.find(s => s.id === submissionId);
     if (!sub) return;
+
     const updatedData = { ...sub.data, [key]: newValue };
+    
+    // Optimistisches UI Update
     setSubs(prev => prev.map(s => s.id === submissionId ? { ...s, data: updatedData } : s));
-    const { error } = await supabase.from("form_submissions").update({ data: updatedData }).eq("id", submissionId);
-    if (error) toast.error("Fehler: " + error.message);
+
+    const { error } = await supabase
+      .from("form_submissions")
+      .update({ data: updatedData })
+      .eq("id", submissionId);
+
+    if (error) toast.error("Speichern fehlgeschlagen: " + error.message);
   };
 
   const deleteSubmission = async (id: string) => {
-    if (!confirm("Eintrag löschen?")) return;
+    if (!confirm("Eintrag wirklich löschen?")) return;
     const { error } = await supabase.from("form_submissions").delete().eq("id", id);
     if (error) return toast.error(error.message);
-    loadData();
-  };
-
-  const getFieldLabel = (formId: string, key: string) => {
-    const field = allFields.find(f => f.form_id === formId && f.field_name === key);
-    return field ? field.label : key;
+    loadSubs();
   };
 
   const activeForm = forms.find((f) => f.id === activeId);
@@ -149,7 +128,7 @@ const Formulare = () => {
           <TabsContent value="builder" className="space-y-4 mt-4">
             <div className="grid md:grid-cols-[260px_1fr] gap-4">
               <Card className="p-3 space-y-1 h-fit bg-card border-border">
-                {forms.length === 0 && <p className="text-sm text-muted-foreground p-2">Keine Formulare.</p>}
+                {forms.length === 0 && <p className="text-sm text-muted-foreground p-2">Noch keine Formulare.</p>}
                 {forms.map((f) => (
                   <button key={f.id} onClick={() => setActiveId(f.id)}
                     className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${activeId === f.id ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
@@ -164,39 +143,50 @@ const Formulare = () => {
                   <Card className="p-4 space-y-3 bg-card border-border">
                     <div className="grid sm:grid-cols-2 gap-3">
                       <div><Label>Titel</Label><Input className="bg-background" value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} /></div>
-                      <div><Label>Button-Text</Label><Input className="bg-background" value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} /></div>
+                      <div><Label>Submit-Button-Text</Label><Input className="bg-background" value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} /></div>
                     </div>
                     <div><Label>Beschreibung</Label><Textarea className="bg-background" rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} /></div>
+                    <div><Label>Erfolgs-Nachricht</Label><Input className="bg-background" value={activeForm.success_message} onChange={(e) => updateForm(activeForm.id, { success_message: e.target.value })} /></div>
                     <div className="flex items-center justify-between pt-2">
                       <div className="flex items-center gap-2">
                         <Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />
-                        <Label>Veröffentlicht</Label>
+                        <Label>Im Frontend veröffentlichen</Label>
                       </div>
                       <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)}>
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4 mr-1" />Löschen
                       </Button>
                     </div>
                   </Card>
 
-                  <Card className="p-4 bg-card border-border">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-semibold">Felder</h3>
-                        <div className="flex flex-wrap gap-1">
-                            {["text", "number", "email", "textarea"].map((t) => (
-                                <Button key={t} size="sm" variant="outline" onClick={() => addField(t as FieldType)} className="h-7 text-[10px] uppercase">{t}</Button>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        {fields.map((f) => (
-                             <Card key={f.id} className="p-2 bg-muted/20 border-border flex items-center gap-3">
-                                <div className="flex-1 grid grid-cols-2 gap-2">
-                                    <Input className="h-8 text-xs bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} placeholder="Label" />
-                                    <Input className="h-8 text-xs bg-background" value={f.field_name} onChange={(e) => updateField(f.id, { field_name: slug(e.target.value) })} placeholder="Slug" />
-                                </div>
-                                <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
-                             </Card>
+                  {/* Felder Bereich */}
+                  <Card className="p-4 space-y-3 bg-card border-border">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <h3 className="font-semibold">Felder</h3>
+                      <div className="flex flex-wrap gap-1">
+                        {(["text","number","email","textarea","radio","checkbox","html"] as FieldType[]).map((t) => (
+                          <Button key={t} size="sm" variant="outline" onClick={() => addField(t)} className="h-8">
+                            <Plus className="h-3 w-3 mr-1" />{t}
+                          </Button>
                         ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {fields.map((f, i) => (
+                        <Card key={f.id} className="p-3 space-y-2 bg-muted/20 border-border">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary text-primary-foreground uppercase">{f.field_type}</span>
+                            <div className="flex-1" />
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
+                          </div>
+                          {f.field_type !== "html" && (
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              <div><Label className="text-xs">Label</Label><Input className="h-8 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                              <div><Label className="text-xs">Platzhalter</Label><Input className="h-8 bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
+                            </div>
+                          )}
+                        </Card>
+                      ))}
                     </div>
                   </Card>
                 </div>
@@ -205,34 +195,32 @@ const Formulare = () => {
           </TabsContent>
 
           <TabsContent value="submissions" className="mt-4">
-             <Card className="border-border bg-card overflow-hidden">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow>
-                      <TableHead className="w-[150px]">Datum</TableHead>
-                      <TableHead>Formular & Inhalt</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {subs.map((s) => (
+            <Card className="overflow-hidden bg-card border-border">
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead className="w-[180px]">Datum</TableHead>
+                    <TableHead className="w-[150px]">Formular</TableHead>
+                    <TableHead>Inhalt bearbeiten</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {subs.map((s) => {
+                    const f = forms.find((x) => x.id === s.form_id);
+                    return (
                       <TableRow key={s.id} className="align-top border-border">
-                        <TableCell className="text-[10px] text-muted-foreground pt-4">
+                        <TableCell className="text-xs text-muted-foreground pt-4">
                           {new Date(s.created_at).toLocaleString("de-DE")}
                         </TableCell>
-                        <TableCell className="py-3">
-                          <div className="font-bold text-xs mb-2 text-primary">
-                            {forms.find(f => f.id === s.form_id)?.title || "Unbekanntes Formular"}
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <TableCell className="font-medium pt-4">{f?.title ?? "—"}</TableCell>
+                        <TableCell className="py-2">
+                          <div className="grid gap-3">
                             {Object.entries(s.data).map(([key, value]) => (
                               <div key={key} className="flex flex-col gap-1">
-                                <Label className="text-[9px] uppercase text-muted-foreground font-black">
-                                  {getFieldLabel(s.form_id, key)}
-                                </Label>
+                                <Label className="text-[10px] uppercase text-muted-foreground font-bold">{key}</Label>
                                 <Input 
-                                  className="h-8 text-sm bg-background border-border"
+                                  className="h-8 text-sm bg-background"
                                   value={String(value)} 
                                   onChange={(e) => updateSubmissionData(s.id, key, e.target.value)}
                                 />
@@ -240,16 +228,23 @@ const Formulare = () => {
                             ))}
                           </div>
                         </TableCell>
-                        <TableCell className="pt-3">
+                        <TableCell className="pt-2 text-right">
                           <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    );
+                  })}
+                  {subs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                        Keine Eingaben vorhanden.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </Card>
           </TabsContent>
         </Tabs>
