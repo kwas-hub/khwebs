@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, Settings, FileText, ChevronRight } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 type FieldType = "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "html";
@@ -40,10 +40,12 @@ const Formulare = () => {
     setForms((data ?? []) as Form[]);
     if (!activeId && data && data.length) setActiveId(data[0].id);
   };
+
   const loadFields = async (formId: string) => {
-    const { data } = await supabase.from("form_fields").select("*").eq("form_id", formId).order("position");
+    const { data } = await supabase.from("form_fields").select("*").eq("form_id", formId).order("position", { ascending: true });
     setFields((data ?? []).map((f: any) => ({ ...f, options: Array.isArray(f.options) ? f.options : [] })) as Field[]);
   };
+
   const loadSubs = async () => {
     const { data } = await supabase.from("form_submissions").select("*").order("created_at", { ascending: false });
     setSubs((data ?? []) as Submission[]);
@@ -51,6 +53,36 @@ const Formulare = () => {
 
   useEffect(() => { loadForms(); loadSubs(); }, []);
   useEffect(() => { if (activeId) loadFields(activeId); }, [activeId]);
+
+  // --- NEU: Funktion zum Verschieben der Felder ---
+  const moveField = async (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= fields.length) return;
+
+    const newFields = [...fields];
+    const currentField = newFields[index];
+    const swapField = newFields[newIndex];
+
+    // Positionen im lokalen State tauschen
+    const tempPos = currentField.position;
+    currentField.position = swapField.position;
+    swapField.position = tempPos;
+
+    newFields[index] = swapField;
+    newFields[newIndex] = currentField;
+    setFields(newFields);
+
+    // In Datenbank aktualisieren
+    const { error } = await supabase.from("form_fields").upsert([
+      { id: currentField.id, position: currentField.position },
+      { id: swapField.id, position: swapField.position }
+    ]);
+
+    if (error) {
+      toast.error("Fehler beim Verschieben: " + error.message);
+      if (activeId) loadFields(activeId);
+    }
+  };
 
   const addForm = async () => {
     const { data, error } = await supabase.from("forms").insert({ title: "Neues Formular", position: forms.length }).select().single();
@@ -74,34 +106,13 @@ const Formulare = () => {
   const addField = async (type: FieldType) => {
     if (!activeId) return;
     const defaultLabel = type === "html" ? "HTML/Script" : "Neues Feld";
-    
-    // Stabileres Script-Template
-    const scriptTemplate = `<script>
-(function() {
-  const logic = () => {
-    const radioName = 'auswahl'; 
-    const targetName = 'andere_auswahl';
-    const radios = document.querySelectorAll('input[name="' + radioName + '"]');
-    const targetInput = document.querySelector('[name="' + targetName + '"]');
-    if (radios.length && targetInput) {
-      const container = targetInput.closest('.form-field-container') || targetInput.parentElement;
-      const check = () => {
-        const sel = document.querySelector('input[name="' + radioName + '"]:checked');
-        container.style.display = (sel && sel.value === 'Andere') ? 'block' : 'none';
-      };
-      document.addEventListener('change', (e) => { if (e.target.name === radioName) check(); });
-      check();
-    }
-  };
-  setTimeout(logic, 600);
-})();
-</script>`;
+    const maxPos = fields.length > 0 ? Math.max(...fields.map(f => f.position)) : -1;
 
     const { error } = await supabase.from("form_fields").insert({
       form_id: activeId, field_type: type, label: defaultLabel,
-      field_name: generateIdFromLabel(defaultLabel), position: fields.length, 
+      field_name: generateIdFromLabel(defaultLabel), position: maxPos + 1, 
       options: type === "radio" || type === "checkbox" ? ["Option 1", "Andere"] : [],
-      html_content: type === "html" ? scriptTemplate : ""
+      html_content: type === "html" ? `<script>\n// Code hier\n</script>` : ""
     });
     if (error) return toast.error(error.message);
     loadFields(activeId);
@@ -187,6 +198,7 @@ const Formulare = () => {
 
               {activeForm && (
                 <div className="space-y-6">
+                  {/* Formular-Einstellungen (Titel, etc.) bleiben gleich */}
                   <Card className="p-6 space-y-4 border-border shadow-sm">
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
@@ -226,10 +238,31 @@ const Formulare = () => {
                     </div>
 
                     <div className="space-y-4">
-                      {fields.map((f) => (
+                      {fields.map((f, index) => (
                         <Card key={f.id} className="p-4 space-y-4 bg-muted/20 border-border group">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
+                              {/* Pfeile zum Verschieben */}
+                              <div className="flex flex-col gap-0.5 mr-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6" 
+                                  disabled={index === 0}
+                                  onClick={() => moveField(index, 'up')}
+                                >
+                                  <ChevronUp className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6" 
+                                  disabled={index === fields.length - 1}
+                                  onClick={() => moveField(index, 'down')}
+                                >
+                                  <ChevronDown className="h-4 w-4" />
+                                </Button>
+                              </div>
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 uppercase tracking-widest">{f.field_type}</span>
                               <span className="text-[10px] font-mono opacity-50">ID: {f.field_name}</span>
                             </div>
@@ -269,6 +302,7 @@ const Formulare = () => {
             </div>
           </TabsContent>
 
+          {/* Submissions Content bleibt gleich */}
           <TabsContent value="submissions" className="mt-6">
             <Card className="overflow-hidden bg-card border-border">
               <div className="hidden md:block">
