@@ -27,48 +27,43 @@ const Formulare = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
   const [subs, setSubs] = useState<Submission[]>([]);
-  const [allFields, setAllFields] = useState<Field[]>([]); 
 
-  const loadData = async () => {
-    const [fRes, sRes, afRes] = await Promise.all([
-      supabase.from("forms").select("*").order("position").order("created_at"),
-      supabase.from("form_submissions").select("*").order("created_at", { ascending: false }),
-      supabase.from("form_fields").select("*")
-    ]);
-
-    if (fRes.data) {
-      setForms(fRes.data as Form[]);
-      if (!activeId && fRes.data.length > 0) setActiveId(fRes.data[0].id);
-    }
-    if (sRes.data) setSubs(sRes.data as Submission[]);
-    if (afRes.data) setAllFields(afRes.data as Field[]);
+  const loadForms = async () => {
+    const { data } = await supabase.from("forms").select("*").order("position").order("created_at");
+    setForms((data ?? []) as Form[]);
+    if (!activeId && data && data.length) setActiveId(data[0].id);
   };
-
   const loadFields = async (formId: string) => {
     const { data } = await supabase.from("form_fields").select("*").eq("form_id", formId).order("position");
     setFields((data ?? []).map((f: any) => ({ ...f, options: Array.isArray(f.options) ? f.options : [] })) as Field[]);
   };
-
-  useEffect(() => { loadData(); }, []);
-  useEffect(() => { if (activeId) loadFields(activeId); }, [activeId]);
-
-  const addForm = async () => {
-    const { data, error } = await supabase.from("forms").insert({ 
-        title: "Neues Formular", 
-        position: forms.length,
-        submit_label: "Senden",
-        success_message: "Gespeichert!"
-    }).select().single();
-    if (error) return toast.error(error.message);
-    loadData(); setActiveId(data.id);
+  const loadSubs = async () => {
+    const { data } = await supabase.from("form_submissions").select("*").order("created_at", { ascending: false });
+    setSubs((data ?? []) as Submission[]);
   };
 
+  useEffect(() => { loadForms(); loadSubs(); }, []);
+  useEffect(() => { if (activeId) loadFields(activeId); }, [activeId]);
+
+  // --- Formular Logik ---
+  const addForm = async () => {
+    const { data, error } = await supabase.from("forms").insert({ title: "Neues Formular", position: forms.length }).select().single();
+    if (error) return toast.error(error.message);
+    await loadForms(); setActiveId(data.id);
+  };
   const updateForm = async (id: string, patch: Partial<Form>) => {
     setForms((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
     const { error } = await supabase.from("forms").update(patch).eq("id", id);
     if (error) toast.error(error.message);
   };
+  const deleteForm = async (id: string) => {
+    if (!confirm("Formular wirklich löschen?")) return;
+    const { error } = await supabase.from("forms").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    setActiveId(null); loadForms();
+  };
 
+  // --- Felder Logik ---
   const addField = async (type: FieldType) => {
     if (!activeId) return;
     const { error } = await supabase.from("form_fields").insert({
@@ -77,28 +72,41 @@ const Formulare = () => {
     });
     if (error) return toast.error(error.message);
     loadFields(activeId);
-    loadData();
+  };
+  const updateField = async (id: string, patch: Partial<Field>) => {
+    setFields((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
+    const { error } = await supabase.from("form_fields").update(patch).eq("id", id);
+    if (error) toast.error(error.message);
+  };
+  const deleteField = async (id: string) => {
+    const { error } = await supabase.from("form_fields").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    if (activeId) loadFields(activeId);
   };
 
+  // --- Submissions (Eingaben) Editier-Logik ---
   const updateSubmissionData = async (submissionId: string, key: string, newValue: string) => {
     const sub = subs.find(s => s.id === submissionId);
     if (!sub) return;
+
     const updatedData = { ...sub.data, [key]: newValue };
+    
+    // Optimistisches UI Update
     setSubs(prev => prev.map(s => s.id === submissionId ? { ...s, data: updatedData } : s));
-    const { error } = await supabase.from("form_submissions").update({ data: updatedData }).eq("id", submissionId);
-    if (error) toast.error(error.message);
+
+    const { error } = await supabase
+      .from("form_submissions")
+      .update({ data: updatedData })
+      .eq("id", submissionId);
+
+    if (error) toast.error("Speichern fehlgeschlagen: " + error.message);
   };
 
   const deleteSubmission = async (id: string) => {
-    if (!confirm("Eintrag löschen?")) return;
+    if (!confirm("Eintrag wirklich löschen?")) return;
     const { error } = await supabase.from("form_submissions").delete().eq("id", id);
     if (error) return toast.error(error.message);
-    loadData();
-  };
-
-  const getFieldLabel = (formId: string, key: string) => {
-    const field = allFields.find(f => f.form_id === formId && f.field_name === key);
-    return field ? field.label : key;
+    loadSubs();
   };
 
   const activeForm = forms.find((f) => f.id === activeId);
@@ -111,56 +119,74 @@ const Formulare = () => {
           <Button onClick={addForm}><Plus className="h-4 w-4 mr-2" />Neues Formular</Button>
         </div>
 
-        <Tabs defaultValue="submissions" className="w-full">
+        <Tabs defaultValue="builder" className="w-full">
           <TabsList className="bg-muted/50 border">
             <TabsTrigger value="builder">Builder</TabsTrigger>
             <TabsTrigger value="submissions">Eingaben ({subs.length})</TabsTrigger>
           </TabsList>
 
-          {/* BUILDER TAB (Desktop & Mobile optimiert) */}
           <TabsContent value="builder" className="space-y-4 mt-4">
             <div className="grid md:grid-cols-[260px_1fr] gap-4">
               <Card className="p-3 space-y-1 h-fit bg-card border-border">
+                {forms.length === 0 && <p className="text-sm text-muted-foreground p-2">Noch keine Formulare.</p>}
                 {forms.map((f) => (
                   <button key={f.id} onClick={() => setActiveId(f.id)}
                     className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${activeId === f.id ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
                     <div className="font-medium truncate">{f.title || "(ohne Titel)"}</div>
+                    <div className="text-xs opacity-70">{f.published ? "Veröffentlicht" : "Privat"}</div>
                   </button>
                 ))}
               </Card>
 
               {activeForm && (
                 <div className="space-y-4">
-                  <Card className="p-4 space-y-3 bg-card border-border shadow-sm">
+                  <Card className="p-4 space-y-3 bg-card border-border">
                     <div className="grid sm:grid-cols-2 gap-3">
-                      <div><Label>Titel</Label><Input className="bg-background mt-1" value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} /></div>
-                      <div><Label>Button-Text</Label><Input className="bg-background mt-1" value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} /></div>
+                      <div><Label>Titel</Label><Input className="bg-background" value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} /></div>
+                      <div><Label>Submit-Button-Text</Label><Input className="bg-background" value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} /></div>
                     </div>
-                    <div className="flex items-center gap-2 pt-2">
-                      <Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />
-                      <Label>Veröffentlicht</Label>
+                    <div><Label>Beschreibung</Label><Textarea className="bg-background" rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} /></div>
+                    <div><Label>Erfolgs-Nachricht</Label><Input className="bg-background" value={activeForm.success_message} onChange={(e) => updateForm(activeForm.id, { success_message: e.target.value })} /></div>
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-2">
+                        <Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />
+                        <Label>Im Frontend veröffentlichen</Label>
+                      </div>
+                      <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)}>
+                        <Trash2 className="h-4 w-4 mr-1" />Löschen
+                      </Button>
                     </div>
                   </Card>
 
-                  <Card className="p-4 bg-card border-border shadow-sm">
-                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                      <h3 className="font-semibold">Felder bearbeiten</h3>
-                      <div className="flex gap-1 overflow-x-auto pb-1">
-                        {["text", "email", "textarea"].map((t) => (
-                          <Button key={t} size="sm" variant="secondary" onClick={() => addField(t as FieldType)} className="h-7 text-[10px] uppercase">+{t}</Button>
+                  {/* Felder Bereich */}
+                  <Card className="p-4 space-y-3 bg-card border-border">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <h3 className="font-semibold">Felder</h3>
+                      <div className="flex flex-wrap gap-1">
+                        {(["text","number","email","textarea","radio","checkbox","html"] as FieldType[]).map((t) => (
+                          <Button key={t} size="sm" variant="outline" onClick={() => addField(t)} className="h-8">
+                            <Plus className="h-3 w-3 mr-1" />{t}
+                          </Button>
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                        {fields.map((f) => (
-                             <Card key={f.id} className="p-3 bg-muted/30 border-border flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
-                                    <Input className="h-9 text-sm bg-background" value={f.label} onChange={(e) => supabase.from("form_fields").update({label: e.target.value}).eq("id", f.id).then(() => loadFields(activeId!))} placeholder="Label" />
-                                    <Input className="h-9 text-sm bg-background" value={f.field_name} readOnly placeholder="Slug" />
-                                </div>
-                                <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive self-end" onClick={() => supabase.from("form_fields").delete().eq("id", f.id).then(() => loadFields(activeId!))}><Trash2 className="h-4 w-4" /></Button>
-                             </Card>
-                        ))}
+
+                    <div className="space-y-3">
+                      {fields.map((f, i) => (
+                        <Card key={f.id} className="p-3 space-y-2 bg-muted/20 border-border">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary text-primary-foreground uppercase">{f.field_type}</span>
+                            <div className="flex-1" />
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
+                          </div>
+                          {f.field_type !== "html" && (
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              <div><Label className="text-xs">Label</Label><Input className="h-8 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                              <div><Label className="text-xs">Platzhalter</Label><Input className="h-8 bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
+                            </div>
+                          )}
+                        </Card>
+                      ))}
                     </div>
                   </Card>
                 </div>
@@ -168,94 +194,97 @@ const Formulare = () => {
             </div>
           </TabsContent>
 
-          {/* EINGABEN TAB (VOLL RESPONSIVE) */}
           <TabsContent value="submissions" className="mt-4">
-            <Card className="border-border bg-card overflow-hidden">
-              {/* DESKTOP TABELLE */}
+            <Card className="overflow-hidden bg-card border-border">
+              {/* Desktop-Ansicht: Tabelle */}
               <div className="hidden md:block">
                 <Table>
-                  <TableHeader className="bg-muted/30">
+                  <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead className="w-[140px]">Datum</TableHead>
-                      <TableHead>Eingabedaten (bearbeitbar)</TableHead>
+                      <TableHead className="w-[180px]">Datum</TableHead>
+                      <TableHead className="w-[150px]">Formular</TableHead>
+                      <TableHead>Inhalt bearbeiten</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {subs.map((s) => (
-                      <TableRow key={s.id} className="align-top border-border hover:bg-muted/10">
-                        <TableCell className="text-[11px] text-muted-foreground pt-4">
-                          {new Date(s.created_at).toLocaleString("de-DE")}
-                        </TableCell>
-                        <TableCell className="py-4">
-                          <div className="text-xs font-bold text-primary mb-3 uppercase tracking-wider">
-                            {forms.find(f => f.id === s.form_id)?.title || "Formular"}
-                          </div>
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4">
-                            {Object.entries(s.data).map(([key, value]) => (
-                              <div key={key} className="space-y-1.5">
-                                <Label className="text-[10px] uppercase font-bold text-muted-foreground/80">
-                                  {getFieldLabel(s.form_id, key)}
-                                </Label>
-                                <Input 
-                                  className="h-9 text-sm bg-background/50 border-border"
-                                  value={String(value)} 
-                                  onChange={(e) => updateSubmissionData(s.id, key, e.target.value)}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell className="pt-4">
-                          <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                    {subs.map((s) => {
+                      const f = forms.find((x) => x.id === s.form_id);
+                      return (
+                        <TableRow key={s.id} className="align-top border-border">
+                          <TableCell className="text-xs text-muted-foreground pt-4">
+                            {new Date(s.created_at).toLocaleString("de-DE")}
+                          </TableCell>
+                          <TableCell className="font-medium pt-4">{f?.title ?? "—"}</TableCell>
+                          <TableCell className="py-2">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                              {Object.entries(s.data).map(([key, value]) => (
+                                <div key={key} className="flex flex-col gap-1">
+                                  <Label className="text-[10px] uppercase text-muted-foreground font-bold">{key}</Label>
+                                  <Input 
+                                    className="h-8 text-sm bg-background"
+                                    value={String(value)} 
+                                    onChange={(e) => updateSubmissionData(s.id, key, e.target.value)}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell className="pt-2 text-right">
+                            <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {subs.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                          Keine Eingaben vorhanden.
                         </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
 
-              {/* MOBILE STACK (KARTEN) */}
+              {/* Mobile-Ansicht: Cards */}
               <div className="md:hidden divide-y divide-border">
-                {subs.map((s) => (
-                  <div key={s.id} className="p-4 space-y-4 bg-card">
-                    <div className="flex justify-between items-start">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-bold text-primary uppercase tracking-widest">
-                          {forms.find(f => f.id === s.form_id)?.title}
-                        </span>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(s.created_at).toLocaleString("de-DE")}
-                        </p>
-                      </div>
-                      <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    
-                    <div className="grid gap-4">
-                      {Object.entries(s.data).map(([key, value]) => (
-                        <div key={key} className="space-y-1">
-                          <Label className="text-[10px] font-bold text-muted-foreground uppercase">
-                            {getFieldLabel(s.form_id, key)}
-                          </Label>
-                          <Input 
-                            className="h-10 bg-background border-border shadow-sm"
-                            value={String(value)} 
-                            onChange={(e) => updateSubmissionData(s.id, key, e.target.value)}
-                          />
+                {subs.map((s) => {
+                  const f = forms.find((x) => x.id === s.form_id);
+                  return (
+                    <div key={s.id} className="p-4 space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-bold text-sm">{f?.title ?? "—"}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {new Date(s.created_at).toLocaleString("de-DE")}
+                          </div>
                         </div>
-                      ))}
+                        <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 -mr-2" onClick={() => deleteSubmission(s.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="space-y-3">
+                        {Object.entries(s.data).map(([key, value]) => (
+                          <div key={key} className="space-y-1">
+                            <Label className="text-[10px] uppercase text-muted-foreground font-bold">{key}</Label>
+                            <Input 
+                              className="h-9 text-sm bg-background"
+                              value={String(value)} 
+                              onChange={(e) => updateSubmissionData(s.id, key, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+                {subs.length === 0 && (
+                  <div className="p-10 text-center text-muted-foreground">Keine Eingaben vorhanden.</div>
+                )}
               </div>
-
-              {subs.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">Keine Eingaben gefunden.</div>
-              )}
             </Card>
           </TabsContent>
         </Tabs>
