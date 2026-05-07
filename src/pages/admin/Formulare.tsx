@@ -20,6 +20,15 @@ type Field = {
 type Form = { id: string; title: string; description: string; published: boolean; position: number; submit_label: string; success_message: string };
 type Submission = { id: string; form_id: string; data: Record<string, any>; created_at: string };
 
+// Hilfsfunktion für die ID-Generierung (Slug)
+const generateIdFromLabel = (label: string) => {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "") // Entfernt Sonderzeichen
+    .replace(/\s+/g, "_")         // Ersetzt Leerzeichen durch Unterstriche
+    || "field_id";
+};
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/(^_|_$)/g, "") || "field";
 
 const Formulare = () => {
@@ -66,20 +75,29 @@ const Formulare = () => {
   // --- Felder Logik ---
   const addField = async (type: FieldType) => {
     if (!activeId) return;
+    const defaultLabel = type === "html" ? "HTML/Script" : "Neues Feld";
     const { error } = await supabase.from("form_fields").insert({
-      form_id: activeId, field_type: type, label: type === "html" ? "HTML/Script" : "Neues Feld",
-      field_name: slug(`feld_${fields.length + 1}`), position: fields.length, 
+      form_id: activeId, field_type: type, label: defaultLabel,
+      field_name: generateIdFromLabel(defaultLabel), // Setzt initiale ID
+      position: fields.length, 
       options: type === "radio" || type === "checkbox" ? ["Option 1"] : [],
-      html_content: type === "html" ? "<p>Ihr HTML hier...</p>" : ""
+      html_content: type === "html" ? `<script>\n// Beispiel: Feld ein/ausblenden\nconst radio = document.getElementById('auswahl');\nconst extra = document.getElementById('andere_auswahl');\nif(radio && extra) {\n  extra.parentElement.style.display = 'none';\n  radio.addEventListener('change', (e) => {\n    extra.parentElement.style.display = e.target.value === 'Andere' ? 'block' : 'none';\n  });\n}\n</script>` : ""
     });
     if (error) return toast.error(error.message);
     loadFields(activeId);
   };
+  
   const updateField = async (id: string, patch: Partial<Field>) => {
+    // Wenn das Label geändert wird, aktualisieren wir automatisch die field_name (ID)
+    if (patch.label !== undefined) {
+      patch.field_name = generateIdFromLabel(patch.label);
+    }
+    
     setFields((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
     const { error } = await supabase.from("form_fields").update(patch).eq("id", id);
     if (error) toast.error(error.message);
   };
+
   const deleteField = async (id: string) => {
     const { error } = await supabase.from("form_fields").delete().eq("id", id);
     if (error) return toast.error(error.message);
@@ -182,7 +200,6 @@ const Formulare = () => {
                     </div>
                   </Card>
 
-                  {/* Felder Bereich */}
                   <Card className="p-4 space-y-3 bg-card border-border">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="font-semibold">Felder</h3>
@@ -200,6 +217,7 @@ const Formulare = () => {
                         <Card key={f.id} className="p-3 space-y-2 bg-muted/20 border-border">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary text-primary-foreground uppercase">{f.field_type}</span>
+                            <div className="text-[10px] font-mono text-muted-foreground ml-2">ID: {f.field_name}</div>
                             <div className="flex-1" />
                             <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
                           </div>
@@ -209,7 +227,7 @@ const Formulare = () => {
                               <Label className="text-xs">HTML / Script Inhalt</Label>
                               <Textarea 
                                 className="font-mono text-xs bg-background" 
-                                rows={6} 
+                                rows={8} 
                                 value={f.html_content} 
                                 onChange={(e) => updateField(f.id, { html_content: e.target.value })}
                               />
@@ -217,7 +235,7 @@ const Formulare = () => {
                           ) : (
                             <>
                               <div className="grid sm:grid-cols-2 gap-2">
-                                <div><Label className="text-xs">Label</Label><Input className="h-8 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                                <div><Label className="text-xs">Label (definiert die ID)</Label><Input className="h-8 bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
                                 <div><Label className="text-xs">Platzhalter</Label><Input className="h-8 bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
                               </div>
 
@@ -242,12 +260,7 @@ const Formulare = () => {
                                         </Button>
                                       </div>
                                     ))}
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      className="h-7 text-[10px] w-fit" 
-                                      onClick={() => addOption(f.id)}
-                                    >
+                                    <Button size="sm" variant="ghost" className="h-7 text-[10px] w-fit" onClick={() => addOption(f.id)}>
                                       <Plus className="h-3 w-3 mr-1" /> Option hinzufügen
                                     </Button>
                                   </div>
@@ -266,7 +279,6 @@ const Formulare = () => {
 
           <TabsContent value="submissions" className="mt-4">
             <Card className="overflow-hidden bg-card border-border">
-              {/* Desktop-Ansicht: Tabelle */}
               <div className="hidden md:block">
                 <Table>
                   <TableHeader className="bg-muted/50">
@@ -319,7 +331,6 @@ const Formulare = () => {
                 </Table>
               </div>
 
-              {/* Mobile-Ansicht: Cards */}
               <div className="md:hidden divide-y divide-border">
                 {subs.map((s) => {
                   const f = forms.find((x) => x.id === s.form_id);
