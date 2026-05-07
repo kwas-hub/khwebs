@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 
 type Field = {
-  id: string; field_type: "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "html";
+  id: string; field_type: "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "select" | "html";
   label: string; field_name: string; options: string[]; html_content: string; required: boolean; placeholder: string;
 };
 type Form = { id: string; title: string; description: string; submit_label: string; success_message: string };
@@ -78,25 +78,37 @@ const PublishedForms = () => {
                 <form onSubmit={(e) => { e.preventDefault(); submit(form); }} className="space-y-4">
                   {form.fields.map((f) => {
                     const v = values[form.id]?.[f.field_name];
+                    const fid = `field-${f.id}`;
                     if (f.field_type === "html") {
-                      return <div key={f.id} dangerouslySetInnerHTML={{ __html: f.html_content }} />;
+                      return <div key={f.id} id={fid} data-field-id={f.id} data-field-name={f.field_name} dangerouslySetInnerHTML={{ __html: f.html_content }} />;
                     }
                     if (f.field_type === "textarea") {
                       return (
-                        <div key={f.id}>
-                          <Label>{f.label}{f.required && " *"}</Label>
-                          <Textarea required={f.required} placeholder={f.placeholder} value={v ?? ""} onChange={(e) => setVal(form.id, f.field_name, e.target.value)} />
+                        <div key={f.id} data-field-id={f.id}>
+                          <Label htmlFor={fid}>{f.label}{f.required && " *"}</Label>
+                          <Textarea id={fid} name={f.field_name} required={f.required} placeholder={f.placeholder} value={v ?? ""} onChange={(e) => setVal(form.id, f.field_name, e.target.value)} />
+                        </div>
+                      );
+                    }
+                    if (f.field_type === "select") {
+                      return (
+                        <div key={f.id} data-field-id={f.id}>
+                          <Label htmlFor={fid}>{f.label}{f.required && " *"}</Label>
+                          <select id={fid} name={f.field_name} required={f.required} value={v ?? ""} onChange={(e) => setVal(form.id, f.field_name, e.target.value)} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                            <option value="">{f.placeholder || "Bitte wählen…"}</option>
+                            {f.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
                         </div>
                       );
                     }
                     if (f.field_type === "radio") {
                       return (
-                        <div key={f.id}>
+                        <div key={f.id} data-field-id={f.id}>
                           <Label>{f.label}{f.required && " *"}</Label>
                           <div className="space-y-1 mt-1">
                             {f.options.map((opt) => (
                               <label key={opt} className="flex items-center gap-2 text-sm">
-                                <input type="radio" name={`${form.id}_${f.field_name}`} value={opt} checked={v === opt} onChange={() => setVal(form.id, f.field_name, opt)} required={f.required} />
+                                <input type="radio" name={f.field_name} value={opt} checked={v === opt} onChange={() => setVal(form.id, f.field_name, opt)} required={f.required} />
                                 {opt}
                               </label>
                             ))}
@@ -107,12 +119,12 @@ const PublishedForms = () => {
                     if (f.field_type === "checkbox") {
                       const arr: string[] = Array.isArray(v) ? v : [];
                       return (
-                        <div key={f.id}>
+                        <div key={f.id} data-field-id={f.id}>
                           <Label>{f.label}{f.required && " *"}</Label>
                           <div className="space-y-1 mt-1">
                             {f.options.map((opt) => (
                               <label key={opt} className="flex items-center gap-2 text-sm">
-                                <input type="checkbox" checked={arr.includes(opt)} onChange={(e) => {
+                                <input type="checkbox" name={f.field_name} value={opt} checked={arr.includes(opt)} onChange={(e) => {
                                   const next = e.target.checked ? [...arr, opt] : arr.filter((x) => x !== opt);
                                   setVal(form.id, f.field_name, next);
                                 }} />
@@ -124,9 +136,9 @@ const PublishedForms = () => {
                       );
                     }
                     return (
-                      <div key={f.id}>
-                        <Label>{f.label}{f.required && " *"}</Label>
-                        <Input type={f.field_type} required={f.required} placeholder={f.placeholder} value={v ?? ""} onChange={(e) => setVal(form.id, f.field_name, e.target.value)} />
+                      <div key={f.id} data-field-id={f.id}>
+                        <Label htmlFor={fid}>{f.label}{f.required && " *"}</Label>
+                        <Input id={fid} name={f.field_name} type={f.field_type} required={f.required} placeholder={f.placeholder} value={v ?? ""} onChange={(e) => setVal(form.id, f.field_name, e.target.value)} />
                       </div>
                     );
                   })}

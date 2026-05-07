@@ -18,43 +18,64 @@ export type Database = {
         Row: {
           appointment_date: string
           appointment_time: string
+          assigned_user_id: string | null
+          color: string
           created_at: string
+          created_by: string | null
           email: string
+          end_time: string | null
           first_name: string
           id: string
           last_name: string
           note: string | null
           phone: string
+          public_visible: boolean
           salutation: string
+          source: string
           status: Database["public"]["Enums"]["appointment_status"]
+          title: string | null
           updated_at: string
         }
         Insert: {
           appointment_date: string
           appointment_time: string
+          assigned_user_id?: string | null
+          color?: string
           created_at?: string
+          created_by?: string | null
           email: string
+          end_time?: string | null
           first_name: string
           id?: string
           last_name: string
           note?: string | null
           phone: string
+          public_visible?: boolean
           salutation: string
+          source?: string
           status?: Database["public"]["Enums"]["appointment_status"]
+          title?: string | null
           updated_at?: string
         }
         Update: {
           appointment_date?: string
           appointment_time?: string
+          assigned_user_id?: string | null
+          color?: string
           created_at?: string
+          created_by?: string | null
           email?: string
+          end_time?: string | null
           first_name?: string
           id?: string
           last_name?: string
           note?: string | null
           phone?: string
+          public_visible?: boolean
           salutation?: string
+          source?: string
           status?: Database["public"]["Enums"]["appointment_status"]
+          title?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -119,6 +140,75 @@ export type Database = {
         }
         Relationships: []
       }
+      email_templates: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          is_html: boolean
+          subject: string
+          trigger_key: string
+          updated_at: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_html?: boolean
+          subject?: string
+          trigger_key: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_html?: boolean
+          subject?: string
+          trigger_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      external_calendars: {
+        Row: {
+          active: boolean
+          assigned_user_id: string | null
+          color: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          public_visible: boolean
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          active?: boolean
+          assigned_user_id?: string | null
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          public_visible?: boolean
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          active?: boolean
+          assigned_user_id?: string | null
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          public_visible?: boolean
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
       form_fields: {
         Row: {
           created_at: string
@@ -175,18 +265,24 @@ export type Database = {
           data: Json
           form_id: string
           id: string
+          internal_note: string
+          status: Database["public"]["Enums"]["submission_status"]
         }
         Insert: {
           created_at?: string
           data?: Json
           form_id: string
           id?: string
+          internal_note?: string
+          status?: Database["public"]["Enums"]["submission_status"]
         }
         Update: {
           created_at?: string
           data?: Json
           form_id?: string
           id?: string
+          internal_note?: string
+          status?: Database["public"]["Enums"]["submission_status"]
         }
         Relationships: [
           {
@@ -234,6 +330,36 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          status: Database["public"]["Enums"]["user_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          status?: Database["public"]["Enums"]["user_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          status?: Database["public"]["Enums"]["user_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       site_settings: {
         Row: {
           booking_enabled: boolean
@@ -278,6 +404,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_edit: { Args: { _user_id: string }; Returns: boolean }
       get_taken_slots: {
         Args: { _from: string; _to: string }
         Returns: {
@@ -285,6 +412,7 @@ export type Database = {
           appointment_time: string
         }[]
       }
+      has_any_backend_role: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -294,8 +422,10 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "user"
+      app_role: "admin" | "user" | "editor" | "guest"
       appointment_status: "pending" | "confirmed" | "cancelled"
+      submission_status: "open" | "confirmed" | "cancelled"
+      user_status: "new" | "active" | "blocked"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -423,8 +553,10 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "user"],
+      app_role: ["admin", "user", "editor", "guest"],
       appointment_status: ["pending", "confirmed", "cancelled"],
+      submission_status: ["open", "confirmed", "cancelled"],
+      user_status: ["new", "active", "blocked"],
     },
   },
 } as const
