@@ -64,6 +64,13 @@ const Termine = () => {
     if (error) toast.error(error.message);
   };
 
+  // Neu: Funktion zum Editieren aller Text-Felder eines Termins
+  const updateApptDetails = async (id: string, patch: Partial<Appt>) => {
+    setAppts((p) => p.map((a) => a.id === id ? { ...a, ...patch } : a));
+    const { error } = await supabase.from("appointments").update(patch).eq("id", id);
+    if (error) toast.error(error.message);
+  };
+
   const updateApptStatus = async (id: string, status: Appt["status"]) => {
     const appt = appts.find((a) => a.id === id);
     const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
@@ -85,7 +92,9 @@ const Termine = () => {
     }
     load();
   };
+
   const deleteAppt = async (id: string) => {
+    if (!confirm("Termin wirklich löschen?")) return;
     const { error } = await supabase.from("appointments").delete().eq("id", id);
     if (error) toast.error(error.message); else load();
   };
@@ -104,7 +113,7 @@ const Termine = () => {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 text-foreground">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h1 className="text-3xl font-bold">Termine</h1>
           <div className="flex items-center gap-2">
@@ -113,8 +122,8 @@ const Termine = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="calendar">
-          <TabsList>
+        <Tabs defaultValue="calendar" className="w-full">
+          <TabsList className="bg-muted/50 border">
             <TabsTrigger value="calendar">Kalender</TabsTrigger>
             <TabsTrigger value="list">Liste</TabsTrigger>
             <TabsTrigger value="availability">Verfügbarkeit</TabsTrigger>
@@ -134,26 +143,26 @@ const Termine = () => {
               </Select>
             </div>
             <div className="grid md:grid-cols-2 gap-6">
-              <Card className="p-4">
+              <Card className="p-4 bg-card border-border">
                 <Calendar
                   mode="single"
                   selected={calDate}
                   onSelect={setCalDate}
                   modifiers={{ booked: (d) => apptDates.has(d.toISOString().split("T")[0]) }}
-                  modifiersClassNames={{ booked: "bg-primary/20 font-bold" }}
+                  modifiersClassNames={{ booked: "bg-primary text-primary-foreground font-bold rounded-md" }}
                 />
               </Card>
-              <Card className="p-4">
+              <Card className="p-4 bg-card border-border">
                 <h3 className="font-semibold mb-3">
                   {calDate?.toLocaleDateString("de-DE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                 </h3>
                 {dayAppts.length === 0 && <p className="text-muted-foreground text-sm">Keine Termine.</p>}
                 <ul className="space-y-2">
                   {dayAppts.map((a) => (
-                    <li key={a.id} className="flex items-center justify-between border-b pb-2">
+                    <li key={a.id} className="flex items-center justify-between border-b border-border pb-2">
                       <div>
                         <div className="font-medium">{a.appointment_time.slice(0,5)} – {a.first_name} {a.last_name}</div>
-                        <div className="text-xs text-muted-foreground">{a.email} · {a.phone}</div>
+                        <div className="text-xs text-muted-foreground">{a.email}</div>
                       </div>
                       <Badge variant={a.status === "confirmed" ? "default" : a.status === "pending" ? "secondary" : "destructive"}>
                         {a.status}
@@ -178,32 +187,80 @@ const Termine = () => {
                 </SelectContent>
               </Select>
             </div>
-            <Card className="overflow-x-auto">
+            <Card className="overflow-x-auto bg-card border-border">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Termin</TableHead>
-                    <TableHead>Anrede</TableHead>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[120px]">Datum</TableHead>
+                    <TableHead className="w-[100px]">Zeit</TableHead>
+                    <TableHead className="w-[100px]">Anrede</TableHead>
                     <TableHead>Vorname</TableHead>
                     <TableHead>Nachname</TableHead>
                     <TableHead>Telefon</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead></TableHead>
+                    <TableHead className="w-[150px]">Status</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredAppts.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>{a.appointment_date} {a.appointment_time.slice(0,5)}</TableCell>
-                      <TableCell>{a.salutation}</TableCell>
-                      <TableCell>{a.first_name}</TableCell>
-                      <TableCell>{a.last_name}</TableCell>
-                      <TableCell>{a.phone}</TableCell>
-                      <TableCell>{a.email}</TableCell>
+                    <TableRow key={a.id} className="hover:bg-muted/30">
+                      <TableCell>
+                        <Input 
+                          type="date" 
+                          className="h-8 bg-background border-none p-1" 
+                          value={a.appointment_date} 
+                          onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input 
+                          type="time" 
+                          className="h-8 bg-background border-none p-1" 
+                          value={a.appointment_time.slice(0,5)} 
+                          onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                         <Select value={a.salutation} onValueChange={(v) => updateApptDetails(a.id, { salutation: v })}>
+                            <SelectTrigger className="h-8 bg-background border-none"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Herr">Herr</SelectItem>
+                              <SelectItem value="Frau">Frau</SelectItem>
+                            </SelectContent>
+                         </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Input 
+                          className="h-8 bg-background" 
+                          value={a.first_name} 
+                          onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input 
+                          className="h-8 bg-background" 
+                          value={a.last_name} 
+                          onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input 
+                          className="h-8 bg-background" 
+                          value={a.phone} 
+                          onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input 
+                          className="h-8 bg-background" 
+                          value={a.email} 
+                          onChange={(e) => updateApptDetails(a.id, { email: e.target.value })}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
-                          <SelectTrigger className="w-32 h-8"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="w-32 h-8 bg-background border-none"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="pending">Offen</SelectItem>
                             <SelectItem value="confirmed">Bestätigt</SelectItem>
@@ -212,14 +269,14 @@ const Termine = () => {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Button size="sm" variant="ghost" onClick={() => deleteAppt(a.id)}>
+                        <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteAppt(a.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
                   ))}
                   {filteredAppts.length === 0 && (
-                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Keine Termine.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-6">Keine Termine.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -228,16 +285,16 @@ const Termine = () => {
 
           <TabsContent value="availability" className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Lege fest an welchen Wochentagen und Uhrzeiten Termine angefragt werden können.</p>
+              <p className="text-sm text-muted-foreground">Lege fest, wann Termine angefragt werden können.</p>
               <Button onClick={addSlot}><Plus className="mr-2 h-4 w-4" />Zeitfenster</Button>
             </div>
             <div className="grid gap-3">
               {slots.map((s) => (
-                <Card key={s.id} className="p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+                <Card key={s.id} className="p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end bg-card border-border">
                   <div>
                     <Label>Wochentag</Label>
                     <Select value={String(s.weekday)} onValueChange={(v) => updateSlot(s.id, { weekday: Number(v) })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {WEEKDAYS.map((d, i) => <SelectItem key={i} value={String(i)}>{d}</SelectItem>)}
                       </SelectContent>
@@ -245,17 +302,17 @@ const Termine = () => {
                   </div>
                   <div>
                     <Label>Von</Label>
-                    <Input type="time" value={s.start_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { start_time: e.target.value })} />
+                    <Input className="bg-background" type="time" value={s.start_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { start_time: e.target.value })} />
                   </div>
                   <div>
                     <Label>Bis</Label>
-                    <Input type="time" value={s.end_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { end_time: e.target.value })} />
+                    <Input className="bg-background" type="time" value={s.end_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { end_time: e.target.value })} />
                   </div>
                   <div>
                     <Label>Dauer (Min)</Label>
-                    <Input type="number" min={5} step={5} value={s.slot_minutes} onChange={(e) => updateSlot(s.id, { slot_minutes: Number(e.target.value) })} />
+                    <Input className="bg-background" type="number" min={5} step={5} value={s.slot_minutes} onChange={(e) => updateSlot(s.id, { slot_minutes: Number(e.target.value) })} />
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-2">
                     <Switch checked={s.active} onCheckedChange={(v) => updateSlot(s.id, { active: v })} />
                     <Label>Aktiv</Label>
                   </div>
@@ -264,7 +321,6 @@ const Termine = () => {
                   </Button>
                 </Card>
               ))}
-              {slots.length === 0 && <p className="text-muted-foreground text-center py-6">Noch keine Zeitfenster.</p>}
             </div>
           </TabsContent>
         </Tabs>
