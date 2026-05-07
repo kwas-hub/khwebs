@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning, Calendar, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { EmailTemplateEditor } from "@/components/admin/EmailTemplateEditor";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -90,7 +90,6 @@ const Formulare = () => {
     const defaultLabel = type === "html" ? "HTML/Script" : "Neues Feld";
     const maxPos = fields.length > 0 ? Math.max(...fields.map(f => f.position)) : -1;
     
-    // Wir fangen den Fehler hier explizit ab, um eine hilfreiche Meldung zu geben
     const { error } = await supabase.from("form_fields").insert({
       form_id: activeId, 
       field_type: type, 
@@ -101,12 +100,7 @@ const Formulare = () => {
       html_content: type === "html" ? `<script>\n// Logik hier einfügen\n</script>` : ""
     });
 
-    if (error) {
-        if (error.message.includes("form_fields_field_type_check")) {
-            return toast.error("Datenbank-Fehler: Der Typ 'select' ist in der Datenbank noch nicht erlaubt. Bitte das SQL-Script ausführen.");
-        }
-        return toast.error(error.message);
-    }
+    if (error) return toast.error(error.message);
     loadFields(activeId);
   };
 
@@ -240,69 +234,43 @@ const Formulare = () => {
 
                     <div className="space-y-4">
                       {fields.map((f, index) => (
-                        <Card key={f.id} className="overflow-hidden border-border bg-card shadow-sm group">
-                          {/* Feld-Header: Steuerung und Metadaten */}
-                          <div className="flex items-center justify-between bg-muted/30 px-4 py-2 border-b">
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center bg-background border rounded-md overflow-hidden">
-                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-none border-r" disabled={index === 0} onClick={() => moveField(index, 'up')}><ChevronUp className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-none" disabled={index === fields.length - 1} onClick={() => moveField(index, 'down')}><ChevronDown className="h-4 w-4" /></Button>
+                        <Card key={f.id} className="p-4 space-y-4 bg-muted/20 border-border group">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="flex flex-col gap-0.5 mr-2">
+                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === 0} onClick={() => moveField(index, 'up')}><ChevronUp className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === fields.length - 1} onClick={() => moveField(index, 'down')}><ChevronDown className="h-4 w-4" /></Button>
                               </div>
-                              <Badge variant="secondary" className="text-[10px] uppercase tracking-wider font-bold px-2 py-0">{f.field_type}</Badge>
-                              <code className="text-[10px] text-muted-foreground hidden sm:inline-block">ID: {f.field_name}</code>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 uppercase tracking-widest">{f.field_type}</span>
+                              <span className="text-[10px] font-mono text-muted-foreground">name=<strong className="text-foreground">{f.field_name}</strong></span>
+                              <label className="flex items-center gap-1 text-[10px] ml-2"><input type="checkbox" checked={f.required} onChange={(e) => updateField(f.id, { required: e.target.checked })} /> Pflicht</label>
                             </div>
-                            
-                            <div className="flex items-center gap-4">
-                              <label className="flex items-center gap-2 text-[10px] font-bold uppercase cursor-pointer select-none">
-                                <Switch className="h-4 w-7" checked={f.required} onCheckedChange={(v) => updateField(f.id, { required: v })} />
-                                Pflicht
-                              </label>
-                              <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
-                            </div>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
                           </div>
 
-                          {/* Feld-Inhalt */}
-                          <div className="p-4">
-                            {f.field_type === "html" ? (
-                              <div className="space-y-2">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">HTML / Script Inhalt</Label>
-                                <Textarea 
-                                  className="font-mono text-xs bg-zinc-950 text-emerald-500 rounded-md p-4 border-none focus-visible:ring-1 focus-visible:ring-emerald-500/50" 
-                                  rows={10} 
-                                  value={f.html_content} 
-                                  onChange={(e) => updateField(f.id, { html_content: e.target.value })} 
-                                  placeholder="<script>...</script>"
-                                />
-                              </div>
-                            ) : (
-                              <div className="grid sm:grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                  <Label className="text-[10px] font-bold uppercase text-muted-foreground">Label</Label>
-                                  <Input className="h-9 bg-muted/10 focus:bg-background" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} />
-                                </div>
-                                <div className="space-y-1.5">
-                                  <Label className="text-[10px] font-bold uppercase text-muted-foreground">Platzhalter</Label>
-                                  <Input className="h-9 bg-muted/10 focus:bg-background" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} />
-                                </div>
-                              </div>
-                            )}
+                          {f.field_type === "html" ? (
+                            <Textarea className="font-mono text-xs bg-zinc-950 text-green-500 rounded-lg p-4" rows={8} value={f.html_content} onChange={(e) => updateField(f.id, { html_content: e.target.value })} />
+                          ) : (
+                            <div className="grid sm:grid-cols-2 gap-4">
+                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Label</Label><Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
+                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Platzhalter</Label><Input className="h-9" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
+                            </div>
+                          )}
 
-                            {/* Optionen für Radio/Checkbox/Select */}
-                            {(f.field_type === "radio" || f.field_type === "checkbox" || f.field_type === "select") && (
-                              <div className="mt-4 pt-4 border-t border-dashed">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground mb-2 block">Optionen</Label>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                  {f.options.map((opt, idx) => (
-                                    <div key={idx} className="flex gap-1 items-center bg-muted/20 p-1 rounded-md">
-                                      <Input className="h-7 text-xs bg-transparent border-none focus-visible:ring-0" value={opt} onChange={(e) => updateOption(f.id, idx, e.target.value)} />
-                                      <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive/60 hover:text-destructive" onClick={() => removeOption(f.id, idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                                    </div>
-                                  ))}
-                                  <Button size="sm" variant="outline" className="h-7 border-dashed text-[10px] font-bold uppercase" onClick={() => addOption(f.id)}>+ Option hinzufügen</Button>
-                                </div>
+                          {(f.field_type === "radio" || f.field_type === "checkbox" || f.field_type === "select") && (
+                            <div className="space-y-2 pt-4 border-t">
+                              <Label className="text-[10px] font-bold uppercase">Optionen</Label>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {f.options.map((opt, idx) => (
+                                  <div key={idx} className="flex gap-2">
+                                    <Input className="h-8 bg-background text-sm" value={opt} onChange={(e) => updateOption(f.id, idx, e.target.value)} />
+                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeOption(f.id, idx)}><Trash2 className="h-3 w-3" /></Button>
+                                  </div>
+                                ))}
+                                <Button size="sm" variant="outline" className="h-8 text-[10px] font-bold uppercase" onClick={() => addOption(f.id)}>+ Option</Button>
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </Card>
                       ))}
                     </div>
@@ -312,14 +280,13 @@ const Formulare = () => {
             </div>
           </TabsContent>
 
-          {/* ... Restlicher Code für Submissions und Emails bleibt unverändert ... */}
           <TabsContent value="submissions" className="space-y-4 mt-6">
-            <div className="flex items-center gap-3 flex-wrap">
-              <Label>Formular:</Label>
+            <div className="flex items-center gap-3 flex-wrap mb-4">
+              <Label className="text-xs font-bold uppercase">Filter:</Label>
               <Select value={submissionFilterForm} onValueChange={setSubmissionFilterForm}>
-                <SelectTrigger className="w-64 bg-card"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-64 bg-card h-9 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Alle</SelectItem>
+                  <SelectItem value="all">Alle Formulare</SelectItem>
                   {forms.map(f => <SelectItem key={f.id} value={f.id}>{f.title}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -328,21 +295,69 @@ const Formulare = () => {
             <div className="space-y-3">
               {filteredSubs.map((s) => {
                 const email = findEmail(s);
+                const dateObj = new Date(s.created_at);
                 return (
-                  <Card key={s.id} className="p-4 bg-card border-border space-y-3">
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                      <div>
-                        <div className="font-bold text-sm">{forms.find(f => f.id === s.form_id)?.title || "—"}</div>
-                        <div className="text-xs text-muted-foreground">{new Date(s.created_at).toLocaleString("de-DE")}</div>
+                  <Card key={s.id} className="p-4 bg-card border-border shadow-sm hover:border-primary/30 transition-colors">
+                    <div className="flex flex-col lg:flex-row gap-4 lg:items-center">
+                      
+                      {/* Datum / Zeit - Spalte 1 */}
+                      <div className="flex flex-row lg:flex-col gap-2 lg:w-32 flex-shrink-0">
+                        <div className="flex items-center gap-1.5 p-2 bg-muted/30 rounded border text-xs font-medium flex-1 justify-center lg:justify-start">
+                          <Calendar className="h-3 w-3 text-muted-foreground" />
+                          {dateObj.toLocaleDateString("de-DE")}
+                        </div>
+                        <div className="flex items-center gap-1.5 p-2 bg-muted/30 rounded border text-xs font-medium flex-1 justify-center lg:justify-start">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          {dateObj.toLocaleTimeString("de-DE", { hour: '2-digit', minute: '2-digit' })}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
+
+                      {/* Titel / Quelle - Spalte 2 */}
+                      <div className="lg:w-40 flex-shrink-0">
+                        <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Titel/Quelle</div>
+                        <div className="p-2 bg-muted/30 rounded border text-xs font-bold truncate mb-1">
+                          {forms.find(f => f.id === s.form_id)?.title || "—"}
+                        </div>
+                        <Badge variant="outline" className="text-[9px] uppercase h-5 bg-background">REQUEST</Badge>
+                      </div>
+
+                      {/* Daten - Spalte 3 (Flexibel) */}
+                      <div className="flex-1 min-w-[200px]">
+                        <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Eingabe-Daten</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {Object.entries(s.data).map(([k, v]) => (
+                            <div key={k} className="flex flex-col p-1.5 bg-muted/20 rounded border border-border/50">
+                              <span className="text-[9px] font-bold uppercase text-muted-foreground leading-none mb-1">{k}</span>
+                              <Input 
+                                className="h-6 text-[11px] bg-transparent border-none p-0 focus-visible:ring-0" 
+                                value={Array.isArray(v) ? v.join(", ") : String(v ?? "")} 
+                                onChange={(e) => updateSubmissionData(s.id, k, e.target.value)} 
+                              />
+                            </div>
+                          ))}
+                        </div>
                         {!email && (
-                          <Badge variant="outline" className="text-orange-600 border-orange-600">
-                            <MessageSquareWarning className="h-3 w-3 mr-1" /> Keine E-Mail vorhanden.
-                          </Badge>
+                          <div className="mt-2 flex items-center gap-1 text-[10px] text-orange-600 font-bold uppercase">
+                            <MessageSquareWarning className="h-3 w-3" /> Keine E-Mail gefunden
+                          </div>
                         )}
+                      </div>
+
+                      {/* Notiz - Spalte 4 (Wie im Bild rot markiert) */}
+                      <div className="lg:w-48 flex-shrink-0">
+                        <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Notiz</div>
+                        <Textarea 
+                          className="text-[11px] leading-tight min-h-[80px] bg-muted/10 resize-none border-border/60 p-2" 
+                          placeholder="Interne Notiz..."
+                          value={s.internal_note || ""} 
+                          onChange={(e) => updateSubmissionField(s.id, { internal_note: e.target.value })} 
+                        />
+                      </div>
+
+                      {/* Status / Aktionen - Spalte 5 */}
+                      <div className="flex flex-row lg:flex-col items-center gap-2 lg:w-36 flex-shrink-0">
                         <Select value={s.status} onValueChange={(v) => updateSubmissionStatus(s.id, v as any)}>
-                          <SelectTrigger className={`h-8 w-36 text-xs font-bold ${s.status === 'confirmed' ? 'text-green-600' : s.status === 'cancelled' ? 'text-destructive' : 'text-orange-500'}`}>
+                          <SelectTrigger className={`h-8 text-[11px] font-bold ${s.status === 'confirmed' ? 'text-green-600 border-green-200 bg-green-50/50' : s.status === 'cancelled' ? 'text-destructive border-red-200 bg-red-50/50' : 'text-orange-500 border-orange-200 bg-orange-50/50'}`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -351,27 +366,16 @@ const Formulare = () => {
                             <SelectItem value="cancelled">Abgelehnt</SelectItem>
                           </SelectContent>
                         </Select>
-                        <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteSubmission(s.id)}>
+                        <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 hover:bg-destructive/10" onClick={() => deleteSubmission(s.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    </div>
-                    <div className="grid sm:grid-cols-2 gap-2">
-                      {Object.entries(s.data).map(([k, v]) => (
-                        <div key={k} className="flex flex-col gap-1 p-2 bg-muted/30 rounded-lg">
-                          <span className="text-[9px] font-bold uppercase text-muted-foreground">{k}</span>
-                          <Input className="h-7 text-xs bg-background" value={Array.isArray(v) ? v.join(", ") : String(v ?? "")} onChange={(e) => updateSubmissionData(s.id, k, e.target.value)} />
-                        </div>
-                      ))}
-                    </div>
-                    <div>
-                      <Label className="text-[10px] font-bold uppercase">Interne Notiz</Label>
-                      <Textarea className="text-xs" rows={2} value={s.internal_note || ""} onChange={(e) => updateSubmissionField(s.id, { internal_note: e.target.value })} />
+
                     </div>
                   </Card>
                 );
               })}
-              {filteredSubs.length === 0 && <p className="text-center py-8 text-sm text-muted-foreground">Keine Eingaben.</p>}
+              {filteredSubs.length === 0 && <p className="text-center py-12 text-sm text-muted-foreground bg-muted/10 rounded-lg border-2 border-dashed">Keine Eingaben vorhanden.</p>}
             </div>
           </TabsContent>
 
