@@ -292,67 +292,83 @@ const Termine = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredAppts.map((a) => (
-                      <TableRow key={a.id} className="hover:bg-muted/30 align-top">
-                        <TableCell className="space-y-1">
-                          <Input type="date" className="h-7 text-[11px] bg-background" value={a.appointment_date} onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })} />
-                          <div className="flex gap-1">
-                            <Input type="time" className="h-7 text-[11px] bg-background font-bold" value={a.appointment_time.slice(0,5)} onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value + ":00" })} />
-                            <Input type="time" className="h-7 text-[11px] bg-background" value={a.end_time?.slice(0,5) || ""} placeholder="Ende" onChange={(e) => updateApptDetails(a.id, { end_time: e.target.value ? e.target.value + ":00" : null })} />
-                          </div>
-                        </TableCell>
-                        <TableCell className="space-y-1">
-                          <Input className="h-7 text-xs bg-background" placeholder="Titel" value={a.title || ""} onChange={(e) => updateApptDetails(a.id, { title: e.target.value })} />
-                          <div className="text-[10px] text-muted-foreground uppercase">{a.source}</div>
-                          <label className="flex items-center gap-1 text-[10px]">
-                            <input type="checkbox" checked={a.public_visible} onChange={(e) => updateApptDetails(a.id, { public_visible: e.target.checked })} /> öffentlich
-                          </label>
-                        </TableCell>
-                        <TableCell className="space-y-1">
-                          <Select value={a.salutation || "_none"} onValueChange={(v) => updateApptDetails(a.id, { salutation: v === "_none" ? "" : v })}>
-                            <SelectTrigger className="h-7 text-[11px] bg-background"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">—</SelectItem>
-                              <SelectItem value="Herr">Herr</SelectItem>
-                              <SelectItem value="Frau">Frau</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Input className="h-7 text-xs bg-background" placeholder="Vorname" value={a.first_name} onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })} />
-                          <Input className="h-7 text-xs bg-background font-medium" placeholder="Nachname" value={a.last_name} onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })} />
-                        </TableCell>
-                        <TableCell className="space-y-1">
-                          <Input className="h-7 text-xs bg-background" placeholder="Telefon" value={a.phone || ""} onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })} disabled={!isAdmin && false} />
-                          <Input className="h-7 text-xs bg-background" placeholder="E-Mail" value={a.email || ""} onChange={(e) => updateApptDetails(a.id, { email: e.target.value })} />
-                          <Select value={a.assigned_user_id || "_none"} onValueChange={(v) => updateApptDetails(a.id, { assigned_user_id: v === "_none" ? null : v })}>
-                            <SelectTrigger className="h-7 text-[11px] bg-background"><SelectValue placeholder="User..." /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">— kein User —</SelectItem>
-                              {profiles.map((p) => <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || p.email}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Textarea className="h-16 text-xs bg-background" value={a.note || ""} onChange={(e) => updateApptDetails(a.id, { note: e.target.value })} />
-                        </TableCell>
-                        <TableCell>
-                          <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
-                            <SelectTrigger className={`h-8 text-xs font-bold ${a.status === 'confirmed' ? 'text-green-600' : a.status === 'cancelled' ? 'text-destructive' : 'text-orange-500'}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Offen</SelectItem>
-                              <SelectItem value="confirmed">Bestätigt</SelectItem>
-                              <SelectItem value="cancelled">Abgesagt</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteAppt(a.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {filteredAppts.map((a) => {
+                      const isManual = a.source === "manual";
+                      return (
+                        <TableRow key={a.id} className="hover:bg-muted/30 align-top">
+                          <TableCell className="space-y-1">
+                            <Input type="date" className="h-7 text-[11px] bg-background" value={a.appointment_date} onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })} />
+                            <div className="flex gap-1">
+                              <Input type="time" className="h-7 text-[11px] bg-background font-bold" value={a.appointment_time.slice(0,5)} onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value + ":00" })} />
+                              <Input type="time" className="h-7 text-[11px] bg-background" value={a.end_time?.slice(0,5) || ""} placeholder="Ende" onChange={(e) => updateApptDetails(a.id, { end_time: e.target.value ? e.target.value + ":00" : null })} />
+                            </div>
+                          </TableCell>
+                          <TableCell className="space-y-1">
+                            <Input 
+                              className="h-7 text-xs bg-background" 
+                              placeholder="Titel" 
+                              value={!isManual ? "Anfrage" : (a.title || "")} 
+                              onChange={(e) => updateApptDetails(a.id, { title: e.target.value })} 
+                            />
+                            <div className="text-[10px] text-muted-foreground uppercase">{a.source}</div>
+                            <label className="flex items-center gap-1 text-[10px]">
+                              <input type="checkbox" checked={a.public_visible} onChange={(e) => updateApptDetails(a.id, { public_visible: e.target.checked })} /> öffentlich
+                            </label>
+                          </TableCell>
+                          <TableCell className="space-y-1">
+                            {!isManual && (
+                              <>
+                                <Select value={a.salutation || "_none"} onValueChange={(v) => updateApptDetails(a.id, { salutation: v === "_none" ? "" : v })}>
+                                  <SelectTrigger className="h-7 text-[11px] bg-background"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="_none">—</SelectItem>
+                                    <SelectItem value="Herr">Herr</SelectItem>
+                                    <SelectItem value="Frau">Frau</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Input className="h-7 text-xs bg-background" placeholder="Vorname" value={a.first_name} onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })} />
+                                <Input className="h-7 text-xs bg-background font-medium" placeholder="Nachname" value={a.last_name} onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })} />
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell className="space-y-1">
+                            {!isManual && (
+                              <>
+                                <Input className="h-7 text-xs bg-background" placeholder="Telefon" value={a.phone || ""} onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })} />
+                                <Input className="h-7 text-xs bg-background" placeholder="E-Mail" value={a.email || ""} onChange={(e) => updateApptDetails(a.id, { email: e.target.value })} />
+                              </>
+                            )}
+                            <Select value={a.assigned_user_id || "_none"} onValueChange={(v) => updateApptDetails(a.id, { assigned_user_id: v === "_none" ? null : v })}>
+                              <SelectTrigger className="h-7 text-[11px] bg-background"><SelectValue placeholder="User..." /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none">— kein User —</SelectItem>
+                                {profiles.map((p) => <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || p.email}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Textarea className="h-16 text-xs bg-background" value={a.note || ""} onChange={(e) => updateApptDetails(a.id, { note: e.target.value })} />
+                          </TableCell>
+                          <TableCell>
+                            <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
+                              <SelectTrigger className={`h-8 text-xs font-bold ${a.status === 'confirmed' ? 'text-green-600' : a.status === 'cancelled' ? 'text-destructive' : 'text-orange-500'}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">Offen</SelectItem>
+                                <SelectItem value="confirmed">Bestätigt</SelectItem>
+                                <SelectItem value="cancelled">Abgesagt</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteAppt(a.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </Card>
@@ -521,23 +537,34 @@ KH Webs`}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
                     <Label>Titel</Label>
-                    <Input value={editingAppt.title || ""} onChange={(e) => setEditingAppt({ ...editingAppt, title: e.target.value })} />
+                    <Input value={editingAppt.source !== 'manual' ? "Anfrage" : (editingAppt.title || "")} onChange={(e) => setEditingAppt({ ...editingAppt, title: e.target.value })} />
                   </div>
                   <div><Label>Datum</Label><Input type="date" value={editingAppt.appointment_date || ""} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_date: e.target.value })} /></div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><Label>Von</Label><Input type="time" value={(editingAppt.appointment_time || "").slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_time: e.target.value })} /></div>
                     <div><Label>Bis</Label><Input type="time" value={(editingAppt.end_time || "").toString().slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, end_time: e.target.value })} /></div>
                   </div>
-                  <div><Label>Anrede</Label>
-                    <Select value={editingAppt.salutation || "_none"} onValueChange={(v) => setEditingAppt({ ...editingAppt, salutation: v === "_none" ? "" : v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">—</SelectItem>
-                        <SelectItem value="Herr">Herr</SelectItem>
-                        <SelectItem value="Frau">Frau</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  
+                  {editingAppt.source !== 'manual' && (
+                    <>
+                      <div><Label>Anrede</Label>
+                        <Select value={editingAppt.salutation || "_none"} onValueChange={(v) => setEditingAppt({ ...editingAppt, salutation: v === "_none" ? "" : v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">—</SelectItem>
+                            <SelectItem value="Herr">Herr</SelectItem>
+                            <SelectItem value="Frau">Frau</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div /> {/* Spacer */}
+                      <div><Label>Vorname</Label><Input value={editingAppt.first_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, first_name: e.target.value })} /></div>
+                      <div><Label>Nachname</Label><Input value={editingAppt.last_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, last_name: e.target.value })} /></div>
+                      <div><Label>Telefon</Label><Input value={editingAppt.phone || ""} onChange={(e) => setEditingAppt({ ...editingAppt, phone: e.target.value })} /></div>
+                      <div><Label>E-Mail</Label><Input value={editingAppt.email || ""} onChange={(e) => setEditingAppt({ ...editingAppt, email: e.target.value })} /></div>
+                    </>
+                  )}
+
                   <div><Label>Status</Label>
                     <Select value={editingAppt.status || "pending"} onValueChange={(v) => setEditingAppt({ ...editingAppt, status: v as any })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -548,10 +575,6 @@ KH Webs`}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>Vorname</Label><Input value={editingAppt.first_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, first_name: e.target.value })} /></div>
-                  <div><Label>Nachname</Label><Input value={editingAppt.last_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, last_name: e.target.value })} /></div>
-                  <div><Label>Telefon</Label><Input value={editingAppt.phone || ""} onChange={(e) => setEditingAppt({ ...editingAppt, phone: e.target.value })} /></div>
-                  <div><Label>E-Mail</Label><Input value={editingAppt.email || ""} onChange={(e) => setEditingAppt({ ...editingAppt, email: e.target.value })} /></div>
                   <div><Label>Farbe</Label><Input type="color" value={editingAppt.color || "#0ea5b7"} onChange={(e) => setEditingAppt({ ...editingAppt, color: e.target.value })} /></div>
                   <div><Label>Zugewiesener User</Label>
                     <Select value={editingAppt.assigned_user_id || "_none"} onValueChange={(v) => setEditingAppt({ ...editingAppt, assigned_user_id: v === "_none" ? null : v })}>
