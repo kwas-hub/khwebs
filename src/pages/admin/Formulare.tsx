@@ -296,9 +296,6 @@ const Formulare = () => {
               {filteredSubs.map((s) => {
                 const email = findEmail(s);
                 const dateObj = new Date(s.created_at);
-                const isFromForm = !!s.form_id;
-                const hiddenFields = ["Anrede", "Vorname", "Nachname", "Telefon", "E-Mail"];
-                
                 return (
                   <Card key={s.id} className="p-4 bg-card border-border shadow-sm hover:border-primary/30 transition-colors">
                     <div className="flex flex-col lg:flex-row gap-4 lg:items-center">
@@ -319,7 +316,7 @@ const Formulare = () => {
                       <div className="lg:w-40 flex-shrink-0">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Titel/Quelle</div>
                         <div className="p-2 bg-muted/30 rounded border text-xs font-bold truncate mb-1">
-                          {isFromForm ? "Anfrage" : (forms.find(f => f.id === s.form_id)?.title || "—")}
+                          {forms.find(f => f.id === s.form_id)?.title || "—"}
                         </div>
                         <Badge variant="outline" className="text-[9px] uppercase h-5 bg-background">REQUEST</Badge>
                       </div>
@@ -328,9 +325,7 @@ const Formulare = () => {
                       <div className="flex-1 min-w-[200px]">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Eingabe-Daten</div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                          {Object.entries(s.data)
-                            .filter(([k]) => isFromForm || !hiddenFields.includes(k))
-                            .map(([k, v]) => (
+                          {Object.entries(s.data).map(([k, v]) => (
                             <div key={k} className="flex flex-col p-1.5 bg-muted/20 rounded border border-border/50">
                               <span className="text-[9px] font-bold uppercase text-muted-foreground leading-none mb-1">{k}</span>
                               <Input 
