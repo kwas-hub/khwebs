@@ -61,9 +61,11 @@ export const FullCal = ({ appointments, externalCalendars, statusFilter = "all",
 
   const eventSources = useMemo(() => {
     const sources: any[] = [{ events }];
+    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
     externalCalendars.filter((c) => c.active).forEach((c) => {
+      const proxied = `https://${projectId}.supabase.co/functions/v1/ics-proxy?url=${encodeURIComponent(c.url)}`;
       sources.push({
-        url: c.url,
+        url: proxied,
         format: "ics",
         color: c.color,
         textColor: "#fff",
