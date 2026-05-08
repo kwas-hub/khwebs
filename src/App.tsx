@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Impressum from "./pages/Impressum";
 import Datenschutz from "./pages/Datenschutz";
@@ -12,6 +13,8 @@ import News from "./pages/admin/News";
 import Termine from "./pages/admin/Termine";
 import Formulare from "./pages/admin/Formulare";
 import Users from "./pages/admin/Users";
+import AI from "./pages/admin/AI";
+import SubmissionDetail from "./pages/admin/SubmissionDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,19 +25,22 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/impressum" element={<Impressum />} />
-          <Route path="/datenschutz" element={<Datenschutz />} />
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/admin" element={<Dashboard />} />
-          <Route path="/admin/news" element={<News />} />
-          <Route path="/admin/termine" element={<Termine />} />
-          <Route path="/admin/formulare" element={<Formulare />} />
-          <Route path="/admin/users" element={<Users />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/impressum" element={<Impressum />} />
+            <Route path="/datenschutz" element={<Datenschutz />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/admin" element={<Dashboard />} />
+            <Route path="/admin/news" element={<News />} />
+            <Route path="/admin/termine" element={<Termine />} />
+            <Route path="/admin/formulare" element={<Formulare />} />
+            <Route path="/admin/formulare/:submissionId" element={<SubmissionDetail />} />
+            <Route path="/admin/users" element={<Users />} />
+            <Route path="/admin/ai" element={<AI />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
