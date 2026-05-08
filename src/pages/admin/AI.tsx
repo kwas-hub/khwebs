@@ -49,7 +49,7 @@ const AIPage = () => {
   const loadDocs = useCallback(async () => {
     if (!userId) return;
     const { data } = await supabase.from("pdf_documents").select("*").order("created_at", { ascending: false });
-    setDocs((data ?? []) as Doc[]);
+    setDocs((data ?? []) as unknown as Doc[]);
   }, [userId]);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
