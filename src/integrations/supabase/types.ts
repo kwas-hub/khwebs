@@ -211,6 +211,7 @@ export type Database = {
       }
       form_fields: {
         Row: {
+          conditions: Json
           created_at: string
           field_name: string
           field_type: string
@@ -222,8 +223,10 @@ export type Database = {
           placeholder: string
           position: number
           required: boolean
+          validations: Json
         }
         Insert: {
+          conditions?: Json
           created_at?: string
           field_name?: string
           field_type: string
@@ -235,8 +238,10 @@ export type Database = {
           placeholder?: string
           position?: number
           required?: boolean
+          validations?: Json
         }
         Update: {
+          conditions?: Json
           created_at?: string
           field_name?: string
           field_type?: string
@@ -248,6 +253,7 @@ export type Database = {
           placeholder?: string
           position?: number
           required?: boolean
+          validations?: Json
         }
         Relationships: [
           {
@@ -261,27 +267,36 @@ export type Database = {
       }
       form_submissions: {
         Row: {
+          assigned_at: string | null
+          assigned_user_id: string | null
           created_at: string
           data: Json
           form_id: string
           id: string
           internal_note: string
+          read_at: string | null
           status: Database["public"]["Enums"]["submission_status"]
         }
         Insert: {
+          assigned_at?: string | null
+          assigned_user_id?: string | null
           created_at?: string
           data?: Json
           form_id: string
           id?: string
           internal_note?: string
+          read_at?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
         }
         Update: {
+          assigned_at?: string | null
+          assigned_user_id?: string | null
           created_at?: string
           data?: Json
           form_id?: string
           id?: string
           internal_note?: string
+          read_at?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
         }
         Relationships: [
@@ -329,6 +344,74 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      pdf_documents: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          notes: string
+          owner_id: string
+          page_order: Json
+          storage_path: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name?: string
+          notes?: string
+          owner_id: string
+          page_order?: Json
+          storage_path: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          notes?: string
+          owner_id?: string
+          page_order?: Json
+          storage_path?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pdf_pages: {
+        Row: {
+          created_at: string
+          document_id: string
+          id: string
+          ocr_blocks: Json
+          ocr_text: string
+          page_index: number
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          id?: string
+          ocr_blocks?: Json
+          ocr_text?: string
+          page_index: number
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          id?: string
+          ocr_blocks?: Json
+          ocr_text?: string
+          page_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pdf_pages_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "pdf_documents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
