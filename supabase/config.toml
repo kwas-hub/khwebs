@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.ics-proxy]
 verify_jwt = false
+
+[functions.pdf-ocr]
+verify_jwt = true
