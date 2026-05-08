@@ -13,6 +13,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@fullcalendar/core": "^6.1.20",
     "@fullcalendar/daygrid": "^6.1.20",
     "@fullcalendar/icalendar": "^6.1.20",
@@ -55,10 +58,13 @@
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.34.5",
+    "html2canvas": "^1.4.1",
     "input-otp": "^1.4.2",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
     "nodemailer": "^6.9.0",
+    "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
