@@ -112,7 +112,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
       {/* MOBILE HEADER: theme + notification icons next to each other */}
       <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-border/50 bg-background/80 backdrop-blur-lg sticky top-0 z-50">
         <div className="flex items-center gap-2">
-          <ThemeToggle iconOnly />
+          <ThemeToggle />
           <NotificationBell />
         </div>
         <div className="flex items-center gap-2">
