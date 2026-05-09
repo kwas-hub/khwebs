@@ -470,7 +470,7 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- RENDER (responsiv optimiert) ---------- */
+  /* ---------- RENDER (responsiv optimiert, Thumbnails horizontal swipebar auf mobil) ---------- */
   return (
     <AdminLayout>
       <div className="space-y-4">
@@ -518,8 +518,8 @@ const AIPage = () => {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[260px_1fr_1fr] gap-4">
-            {/* Seitenleiste */}
-            <Card className="p-3 space-y-2 overflow-y-auto">
+            {/* Seitenleiste - auf Desktop vertikales Raster, auf mobil horizontaler Swipe-Container */}
+            <Card className="p-3 space-y-2">
               <div className="flex justify-between items-center px-1 mb-2">
                 <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
                 <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
@@ -532,7 +532,29 @@ const AIPage = () => {
                   OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
                 </div>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-1 gap-2">
+              
+              {/* Mobil: horizontal scrollbar (Swipe) / Desktop: normales vertikales Grid */}
+              <div className="lg:hidden overflow-x-auto pb-2 -mx-1 px-1">
+                <div className="flex flex-row gap-2 snap-x snap-mandatory">
+                  {pageOrder.map((pm, i) => (
+                    <div key={i} className={`snap-start shrink-0 w-24 rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
+                      <div className="aspect-[3/4] bg-muted flex items-center justify-center relative">
+                        {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                        <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
+                      </div>
+                      <div className="flex justify-end gap-0.5 p-0.5 bg-muted/50">
+                        <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-2.5 w-2.5" /></Button>
+                        <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-2.5 w-2.5" /></Button>
+                        <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-2.5 w-2.5" /></Button>
+                        <Button size="icon" variant="destructive" className="h-5 w-5" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-2.5 w-2.5" /></Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Desktop: vertikales Raster */}
+              <div className="hidden lg:grid grid-cols-1 gap-2 max-h-[calc(100vh-240px)] overflow-y-auto">
                 {pageOrder.map((pm, i) => (
                   <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
                     <div className="aspect-[3/4] bg-muted flex items-center justify-center">
