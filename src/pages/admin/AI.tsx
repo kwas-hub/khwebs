@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -17,10 +17,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 type Doc = { id: string; name: string; storage_path: string; page_order: PageMeta[]; notes: string; created_at: string };
 type PageMeta = { idx: number; rotation: number };
-type WordBlock = { text: string; x: number; y: number; w: number; h: number }; // relative 0..1
+type WordBlock = { text: string; x: number; y: number; w: number; h: number };
 
 const RENDER_SCALE = 1.4;
-const FORCE_SERVER_OCR = true; // Immer Server-OCR verwenden (für gescannte PDFs)
 
 const AIPage = () => {
   const { userId } = useAuth();
@@ -35,7 +34,7 @@ const AIPage = () => {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [renderedSize, setRenderedSize] = useState({ w: 0, h: 0 });
-  const [debugResponse, setDebugResponse] = useState<any>(null);
+  const [ocrDebug, setOcrDebug] = useState<{ response: any; error: string | null; source: string }>({ response: null, error: null, source: "" });
   const [showDebug, setShowDebug] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -95,29 +94,92 @@ const AIPage = () => {
     return () => { cancelled = true; };
   }, [pdfDoc, pageOrder.length]);
 
-  /* ---------- SERVER OCR (Edge Function) ---------- */
-  const runServerOCR = async (imageDataUrl: string): Promise<WordBlock[] | null> => {
+  /* ---------- NATIVE PDF.JS TEXTEXTRAKTION (Fallback) ---------- */
+  const extractNativeWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
     try {
-      console.log("Sende Bild an Edge Function, Länge:", imageDataUrl.length);
+      const textContent = await page.getTextContent();
+      const items = textContent.items;
+      if (!items || !Array.isArray(items)) return [];
+      const blocks: WordBlock[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item || typeof item !== "object") continue;
+        const str = item.str;
+        if (!str || str.trim() === "") continue;
+        let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+        if (item.transform && Array.isArray(item.transform) && item.transform.length >= 6) {
+          const [a, b, c, d, e, f] = item.transform;
+          x1 = e;
+          y1 = f;
+          const w = typeof item.width === "number" ? item.width : 0;
+          const h = typeof item.height === "number" ? item.height : 0;
+          x2 = e + w;
+          y2 = f + h;
+        } else if (typeof item.x === "number" && typeof item.y === "number") {
+          x1 = item.x;
+          y1 = item.y;
+          const w = typeof item.width === "number" ? item.width : 0;
+          const h = typeof item.height === "number" ? item.height : 0;
+          x2 = item.x + w;
+          y2 = item.y + h;
+        } else {
+          continue;
+        }
+        if (x2 <= x1 || y2 <= y1) continue;
+        const [x1v, y1v] = viewport.convertToViewportPoint(x1, y1);
+        const [x2v, y2v] = viewport.convertToViewportPoint(x2, y2);
+        const left = Math.min(x1v, x2v);
+        const top = Math.min(y1v, y2v);
+        const width = Math.abs(x2v - x1v);
+        const height = Math.abs(y2v - y1v);
+        if (width <= 0.5 || height <= 0.5) continue;
+        blocks.push({
+          text: str,
+          x: left / canvasWidth,
+          y: top / canvasHeight,
+          w: width / canvasWidth,
+          h: height / canvasHeight,
+        });
+      }
+      return blocks;
+    } catch (err) {
+      console.warn("Native Extraktion fehlgeschlagen", err);
+      return [];
+    }
+  };
+
+  /* ---------- SERVER OCR MIT AUSFÜHRLICHEM DEBUG ---------- */
+  const runServerOCR = async (imageDataUrl: string): Promise<WordBlock[] | null> => {
+    setOcrDebug({ response: null, error: null, source: "" });
+    try {
+      console.log("📤 Sende Bild an Edge Function, Größe:", Math.round(imageDataUrl.length / 1024), "KB");
       const { data, error } = await supabase.functions.invoke("pdf-ocr", {
         body: { imageDataUrl },
       });
       if (error) {
-        console.error("Edge Function Fehler:", error);
+        console.error("❌ Edge Function Fehler:", error);
+        setOcrDebug({ response: null, error: error.message, source: "server" });
         throw error;
       }
-      console.log("Antwort der Edge Function:", data);
-      setDebugResponse(data); // für Debug-Anzeige
+      console.log("✅ Antwort der Edge Function:", data);
+      setOcrDebug({ response: data, error: null, source: "server" });
 
-      // Verschiedene mögliche Antwortformate akzeptieren
+      // Extrahiere Blöcke aus verschiedenen möglichen Formaten
       let blocks = null;
       if (data && data.blocks && Array.isArray(data.blocks)) blocks = data.blocks;
       else if (data && data.words && Array.isArray(data.words)) blocks = data.words;
       else if (data && data.results && Array.isArray(data.results)) blocks = data.results;
       else if (Array.isArray(data)) blocks = data;
+      else if (data && data.text && typeof data.text === "string") {
+        // Fallback: Ganzer Text als ein Block (ohne Position)
+        const canvas = canvasRef.current;
+        if (canvas) {
+          return [{ text: data.text, x: 0, y: 0, w: 1, h: 0.05 }];
+        }
+      }
 
       if (!blocks || blocks.length === 0) {
-        console.warn("Keine Blöcke in der Antwort");
+        console.warn("⚠️ Keine Blöcke in der Antwort");
         return [];
       }
 
@@ -140,36 +202,52 @@ const AIPage = () => {
             w = b.w || b.width || 0;
             h = b.h || b.height || 0;
           } else {
-            console.warn("Block ohne Positionsdaten:", b);
             return null;
           }
           const text = b.text || "";
           if (text.trim().length === 0) return null;
-          return {
-            text: text,
-            x: x / imgWidth,
-            y: y / imgHeight,
-            w: w / imgWidth,
-            h: h / imgHeight,
-          };
+          // Begrenzung auf gültige Bereich
+          const normX = Math.max(0, Math.min(1, x / imgWidth));
+          const normY = Math.max(0, Math.min(1, y / imgHeight));
+          const normW = Math.max(0.01, Math.min(1, w / imgWidth));
+          const normH = Math.max(0.01, Math.min(1, h / imgHeight));
+          return { text, x: normX, y: normY, w: normW, h: normH };
         })
         .filter((b): b is WordBlock => b !== null);
 
-      console.log(`${wordBlocks.length} Wort-Blöcke konvertiert`);
+      console.log(`📝 ${wordBlocks.length} Wort-Blöcke konvertiert`);
       return wordBlocks;
     } catch (err: any) {
-      console.error("Server-OCR Fehler:", err);
-      throw err;
+      console.error("💥 Server-OCR Fehler:", err);
+      setOcrDebug({ response: null, error: err.message || "Unbekannter Fehler", source: "exception" });
+      return null;
     }
   };
 
-  /* ---------- SEITE RENDERN + OCR (erzwungen) ---------- */
+  /* ---------- TEST-FUNKTION FÜR EDGE FUNCTION (mit kleinem Bild) ---------- */
+  const testEdgeFunction = async () => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const testImage = canvas.toDataURL("image/jpeg", 0.5);
+    toast.info("Teste Edge Function...");
+    try {
+      const words = await runServerOCR(testImage);
+      if (words && words.length > 0) {
+        toast.success(`Test erfolgreich: ${words.length} Wörter erkannt`);
+      } else {
+        toast.error("Test fehlgeschlagen: Keine Wörter erkannt");
+      }
+    } catch (e: any) {
+      toast.error("Testfehler: " + e.message);
+    }
+  };
+
+  /* ---------- SEITE RENDERN + TEXTERKENNUNG (Hybrid) ---------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
       setWordBlocks([]);
       setPageOcrText("");
-      setDebugResponse(null);
       const page = await pdfDoc.getPage(activeMeta.idx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
       const canvas = canvasRef.current;
@@ -179,31 +257,48 @@ const AIPage = () => {
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      if (FORCE_SERVER_OCR) {
-        setOcrLoading(true);
-        try {
-          const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-          const words = await runServerOCR(imageDataUrl);
-          if (words && words.length > 0) {
-            setWordBlocks(words);
-            const fullText = words.map(w => w.text).join(" ");
-            setPageOcrText(fullText);
-            await supabase.from("pdf_pages").upsert({
-              document_id: activeDoc!.id,
-              page_index: activeMeta.idx,
-              ocr_text: fullText,
-              ocr_blocks: words as any,
-            }, { onConflict: "document_id,page_index" });
-            toast.success(`${words.length} Wörter erkannt (Server-OCR)`);
+      setOcrLoading(true);
+      try {
+        // Zuerst Server-OCR versuchen
+        const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        let words = await runServerOCR(imageDataUrl);
+        if (words && words.length > 0) {
+          setWordBlocks(words);
+          setPageOcrText(words.map(w => w.text).join(" "));
+          setOcrDebug(prev => ({ ...prev, source: "server-ocr-success" }));
+          await supabase.from("pdf_pages").upsert({
+            document_id: activeDoc!.id,
+            page_index: activeMeta.idx,
+            ocr_text: words.map(w => w.text).join(" "),
+            ocr_blocks: words as any,
+          }, { onConflict: "document_id,page_index" });
+          toast.success(`${words.length} Wörter (Server-OCR)`);
+        } else {
+          // Fallback: Native Extraktion
+          const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
+          if (nativeWords && nativeWords.length > 0) {
+            setWordBlocks(nativeWords);
+            setPageOcrText(nativeWords.map(w => w.text).join(" "));
+            setOcrDebug(prev => ({ ...prev, source: "native-fallback", response: null }));
+            toast.warning(`${nativeWords.length} Wörter (native PDF.js) – Server-OCR lieferte nichts`);
           } else {
-            toast.error("Server-OCR lieferte keine Wörter. Bitte Debug-Info prüfen.");
+            setOcrDebug(prev => ({ ...prev, source: "no-words", response: null }));
+            toast.error("Keine Wörter erkannt (weder Server noch native)");
           }
-        } catch (err: any) {
-          console.error(err);
-          toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
-        } finally {
-          setOcrLoading(false);
         }
+      } catch (err: any) {
+        console.error(err);
+        toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
+        // Fallback native
+        const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
+        if (nativeWords && nativeWords.length > 0) {
+          setWordBlocks(nativeWords);
+          setPageOcrText(nativeWords.map(w => w.text).join(" "));
+          setOcrDebug(prev => ({ ...prev, source: "native-after-error", response: null }));
+          toast.warning(`${nativeWords.length} Wörter (native PDF.js) – Server-OCR fehlgeschlagen`);
+        }
+      } finally {
+        setOcrLoading(false);
       }
     };
     run();
@@ -216,20 +311,30 @@ const AIPage = () => {
     try {
       const canvas = canvasRef.current;
       const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      const words = await runServerOCR(imageDataUrl);
+      let words = await runServerOCR(imageDataUrl);
       if (words && words.length > 0) {
         setWordBlocks(words);
-        const fullText = words.map(w => w.text).join(" ");
-        setPageOcrText(fullText);
+        setPageOcrText(words.map(w => w.text).join(" "));
+        setOcrDebug(prev => ({ ...prev, source: "manual-server-success" }));
         await supabase.from("pdf_pages").upsert({
           document_id: activeDoc!.id,
           page_index: activeMeta.idx,
-          ocr_text: fullText,
+          ocr_text: words.map(w => w.text).join(" "),
           ocr_blocks: words as any,
         }, { onConflict: "document_id,page_index" });
         toast.success(`${words.length} Wörter erkannt (Server-OCR)`);
       } else {
-        toast.error("Server-OCR lieferte keine Wörter.");
+        const page = await pdfDoc.getPage(activeMeta.idx + 1);
+        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
+        const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
+        if (nativeWords && nativeWords.length > 0) {
+          setWordBlocks(nativeWords);
+          setPageOcrText(nativeWords.map(w => w.text).join(" "));
+          setOcrDebug(prev => ({ ...prev, source: "manual-native-fallback" }));
+          toast.warning(`${nativeWords.length} Wörter (native PDF.js) – Server-OCR lieferte nichts`);
+        } else {
+          toast.error("Keine Wörter erkannt");
+        }
       }
     } catch (err: any) {
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
@@ -238,7 +343,7 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- UPLOAD, PAGE ACTIONS, NOTES, INSERT ---------- */
+  /* ---------- WEITERE FUNKTIONEN (Upload, Seitenaktionen, Notes, Export) ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
     if (file.type !== "application/pdf") { toast.error("Nur PDF-Dateien"); return; }
@@ -415,23 +520,28 @@ const AIPage = () => {
 
             {/* Editor */}
             <Card className="p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-2">
-                <Input value={activeDoc.name} className="h-8 text-sm font-bold border-0 px-1 focus-visible:ring-1"
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <Input value={activeDoc.name} className="h-8 text-sm font-bold border-0 px-1 flex-1 focus-visible:ring-1"
                   onChange={async (e) => {
                     setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
                     await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
                   }} />
-                <Button onClick={runOCR} disabled={ocrLoading} size="sm">
-                  {ocrLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                  OCR Seite {activePageOrderIdx + 1}
-                </Button>
+                <div className="flex gap-1">
+                  <Button onClick={runOCR} disabled={ocrLoading} size="sm">
+                    {ocrLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                    OCR
+                  </Button>
+                  <Button onClick={testEdgeFunction} variant="outline" size="sm" title="Edge Function testen">
+                    <WifiOff className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <Textarea ref={textareaRef} value={notes} onChange={(e) => saveNotes(e.target.value)}
                 className="flex-1 min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
               <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es an der Cursorposition einzufügen.</div>
             </Card>
 
-            {/* Vorschau mit Wort-Overlays */}
+            {/* Vorschau mit Wort-Overlays + Debug */}
             <Card className="p-3 max-h-[calc(100vh-220px)] overflow-auto bg-muted/30 relative">
               {ocrLoading && (
                 <div className="absolute inset-0 z-10 bg-background/70 flex items-center justify-center backdrop-blur-sm rounded-md">
@@ -458,21 +568,22 @@ const AIPage = () => {
                   />
                 ))}
               </div>
-              {/* Debug-Button und Anzeige */}
-              {debugResponse && (
-                <div className="mt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowDebug(!showDebug)}
-                    className="text-xs"
-                  >
-                    <Bug className="h-3 w-3 mr-1" /> OCR Debug
-                  </Button>
-                  {showDebug && (
-                    <pre className="mt-2 text-xs bg-black/80 text-white p-2 rounded overflow-auto max-h-60">
-                      {JSON.stringify(debugResponse, null, 2)}
-                    </pre>
+              {/* Debug-Bereich - immer sichtbar, wenn Daten vorhanden */}
+              {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && (
+                <div className="mt-3 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold">🔍 OCR Debug</span>
+                    <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-6 px-2">
+                      {showDebug ? "Weniger" : "Mehr"} <Bug className="h-3 w-3 ml-1" />
+                    </Button>
+                  </div>
+                  <div className="mt-1">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
+                  {ocrDebug.error && <div className="text-red-600 mt-1">❌ Fehler: {ocrDebug.error}</div>}
+                  {showDebug && ocrDebug.response && (
+                    <pre className="mt-2 overflow-auto max-h-60 bg-black text-white p-2 rounded">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
+                  )}
+                  {wordBlocks.length === 0 && !ocrLoading && (
+                    <div className="text-red-600 mt-1">⚠️ Keine Wort-Blöcke erkannt.</div>
                   )}
                 </div>
               )}
