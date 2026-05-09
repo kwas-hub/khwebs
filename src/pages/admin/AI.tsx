@@ -94,40 +94,68 @@ const AIPage = () => {
     return () => { cancelled = true; };
   }, [pdfDoc, pageOrder.length]);
 
-  /* ------- HELPER: EXTRACT WORD BLOCKS FROM PDF PAGE ------- */
+  /* ------- ROBUSTE TEXTEXTRAKTION (WÖRTER) ------- */
   const extractWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
-    const textContent = await page.getTextContent();
-    const items = textContent.items;
-    const blocks: WordBlock[] = [];
+    try {
+      const textContent = await page.getTextContent();
+      const items = textContent.items;
+      if (!items || !Array.isArray(items)) return [];
+      const blocks: WordBlock[] = [];
 
-    for (const item of items) {
-      if (!item.str || item.str.trim() === "") continue;
-      // item.transform: [scaleX, skewX, skewY, scaleY, translateX, translateY]
-      const [a, b, c, d, e, f] = item.transform;
-      const x1 = e;
-      const y1 = f;
-      const x2 = e + (item.width ?? 0);
-      const y2 = f + (item.height ?? 0);
-      // convert PDF coordinates (origin bottom-left) to canvas pixels (origin top-left)
-      const [x1v, y1v] = viewport.convertToViewportPoint(x1, y1);
-      const [x2v, y2v] = viewport.convertToViewportPoint(x2, y2);
-      const left = Math.min(x1v, x2v);
-      const top = Math.min(y1v, y2v);
-      const width = Math.abs(x2v - x1v);
-      const height = Math.abs(y2v - y1v);
-      if (width <= 0.5 || height <= 0.5) continue; // ignore degenerate
-      blocks.push({
-        text: item.str,
-        x: left / canvasWidth,
-        y: top / canvasHeight,
-        w: width / canvasWidth,
-        h: height / canvasHeight,
-      });
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        if (!item || typeof item !== "object") continue;
+        const str = item.str;
+        if (!str || str.trim() === "") continue;
+
+        let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+        // PDF.js liefert entweder transform + width/height oder direkte x/y
+        if (item.transform && Array.isArray(item.transform) && item.transform.length >= 6) {
+          const [a, b, c, d, e, f] = item.transform;
+          x1 = e;
+          y1 = f;
+          const w = typeof item.width === "number" ? item.width : 0;
+          const h = typeof item.height === "number" ? item.height : 0;
+          x2 = e + w;
+          y2 = f + h;
+        } else if (typeof item.x === "number" && typeof item.y === "number") {
+          x1 = item.x;
+          y1 = item.y;
+          const w = typeof item.width === "number" ? item.width : 0;
+          const h = typeof item.height === "number" ? item.height : 0;
+          x2 = item.x + w;
+          y2 = item.y + h;
+        } else {
+          continue; // keine Positiondaten
+        }
+
+        if (x2 <= x1 || y2 <= y1) continue;
+
+        // in Viewport-Koordinaten umrechnen
+        const [x1v, y1v] = viewport.convertToViewportPoint(x1, y1);
+        const [x2v, y2v] = viewport.convertToViewportPoint(x2, y2);
+        const left = Math.min(x1v, x2v);
+        const top = Math.min(y1v, y2v);
+        const width = Math.abs(x2v - x1v);
+        const height = Math.abs(y2v - y1v);
+        if (width <= 0.5 || height <= 0.5) continue;
+
+        blocks.push({
+          text: str,
+          x: left / canvasWidth,
+          y: top / canvasHeight,
+          w: width / canvasWidth,
+          h: height / canvasHeight,
+        });
+      }
+      return blocks;
+    } catch (err) {
+      console.error("Text extraction failed", err);
+      return [];
     }
-    return blocks;
   };
 
-  /* ------- RENDER ACTIVE PAGE + EXTRACT WORD BLOCKS ------- */
+  /* ------- RENDER ACTIVE PAGE + EXTRAKTION ------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
@@ -142,22 +170,19 @@ const AIPage = () => {
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      // Extract word blocks from the same page (client‑side OCR)
-      try {
-        const words = await extractWordBlocks(page, viewport, canvas.width, canvas.height);
-        setWordBlocks(words);
-        const fullText = words.map(w => w.text).join(" ");
-        setPageOcrText(fullText);
-        // Optional: persist in database
-        await supabase.from("pdf_pages").upsert({
-          document_id: activeDoc!.id,
-          page_index: activeMeta.idx,
-          ocr_text: fullText,
-          ocr_blocks: words as any, // store relative word blocks
-        }, { onConflict: "document_id,page_index" });
-      } catch (err) {
-        console.warn("text extraction failed", err);
-      }
+      // Wortblöcke extrahieren (clientseitig)
+      const words = await extractWordBlocks(page, viewport, canvas.width, canvas.height);
+      setWordBlocks(words);
+      const fullText = words.map(w => w.text).join(" ");
+      setPageOcrText(fullText);
+
+      // persistieren (optional)
+      await supabase.from("pdf_pages").upsert({
+        document_id: activeDoc!.id,
+        page_index: activeMeta.idx,
+        ocr_text: fullText,
+        ocr_blocks: words as any,
+      }, { onConflict: "document_id,page_index" });
     };
     run();
   }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id]);
@@ -219,14 +244,15 @@ const AIPage = () => {
     await supabase.from("pdf_documents").update({ notes: v }).eq("id", activeDoc.id);
   };
 
-  /* ------- OCR BUTTON (re‑extract words, already done on render, but re-run if needed) ------- */
+  /* ------- OCR BUTTON (manueller Trigger) ------- */
   const runOCR = async () => {
     if (!pdfDoc || !activeMeta || !canvasRef.current) return;
     setOcrLoading(true);
     try {
       const page = await pdfDoc.getPage(activeMeta.idx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
-      const words = await extractWordBlocks(page, viewport, renderedSize.w || viewport.width, renderedSize.h || viewport.height);
+      const canvas = canvasRef.current;
+      const words = await extractWordBlocks(page, viewport, canvas.width, canvas.height);
       setWordBlocks(words);
       const fullText = words.map(w => w.text).join(" ");
       setPageOcrText(fullText);
@@ -342,7 +368,7 @@ const AIPage = () => {
           </Card>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_1fr] gap-4">
-            {/* SPALTE 1: Seiten */}
+            {/* Seitenleiste */}
             <Card className="p-3 space-y-2 max-h-[calc(100vh-220px)] overflow-y-auto">
               <div className="text-[10px] font-bold uppercase text-muted-foreground px-1">Seiten ({pageOrder.length})</div>
               {pageOrder.map((pm, i) => (
@@ -367,7 +393,7 @@ const AIPage = () => {
               ))}
             </Card>
 
-            {/* SPALTE 2: Editor */}
+            {/* Editor */}
             <Card className="p-4 flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <Input value={activeDoc.name} className="h-8 text-sm font-bold border-0 px-1 focus-visible:ring-1"
@@ -385,8 +411,8 @@ const AIPage = () => {
               <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es an der Cursorposition einzufügen.</div>
             </Card>
 
-            {/* SPALTE 3: Vorschau mit Wort‑Overlays */}
-            <Card className="p-3 max-h-[calc(100vh-220px)] overflow-auto bg-muted/30">
+            {/* Vorschau mit Wort-Overlays */}
+            <Card className="p-3 max-h-[calc(100vh-220px)] overflow-auto bg-muted/30 relative">
               {ocrLoading && (
                 <div className="absolute inset-0 z-10 bg-background/70 flex items-center justify-center backdrop-blur-sm rounded-md">
                   <div className="flex flex-col items-center gap-2">
@@ -397,7 +423,6 @@ const AIPage = () => {
               )}
               <div className="relative inline-block">
                 <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
-                {/* Wort‑Overlays */}
                 {wordBlocks.map((word, i) => (
                   <button
                     key={i}
