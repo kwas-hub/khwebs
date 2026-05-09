@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -20,7 +20,7 @@ type PageMeta = { idx: number; rotation: number };
 type WordBlock = { text: string; x: number; y: number; w: number; h: number }; // relative 0..1
 
 const RENDER_SCALE = 1.4;
-const MIN_TEXT_LENGTH_FOR_NATIVE = 50; // minimale Zeichenzahl, um native Extraktion als ausreichend zu betrachten
+const FORCE_SERVER_OCR = true; // Immer Server-OCR verwenden (für gescannte PDFs)
 
 const AIPage = () => {
   const { userId } = useAuth();
@@ -35,6 +35,8 @@ const AIPage = () => {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [renderedSize, setRenderedSize] = useState({ w: 0, h: 0 });
+  const [debugResponse, setDebugResponse] = useState<any>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -93,95 +95,81 @@ const AIPage = () => {
     return () => { cancelled = true; };
   }, [pdfDoc, pageOrder.length]);
 
-  /* ---------- KLASSISCHE PDF.JS TEXTEXTRAKTION (für native Text-PDFs) ---------- */
-  const extractNativeWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
-    try {
-      const textContent = await page.getTextContent();
-      const items = textContent.items;
-      if (!items || !Array.isArray(items)) return [];
-      const blocks: WordBlock[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (!item || typeof item !== "object") continue;
-        const str = item.str;
-        if (!str || str.trim() === "") continue;
-        let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-        if (item.transform && Array.isArray(item.transform) && item.transform.length >= 6) {
-          const [a, b, c, d, e, f] = item.transform;
-          x1 = e;
-          y1 = f;
-          const w = typeof item.width === "number" ? item.width : 0;
-          const h = typeof item.height === "number" ? item.height : 0;
-          x2 = e + w;
-          y2 = f + h;
-        } else if (typeof item.x === "number" && typeof item.y === "number") {
-          x1 = item.x;
-          y1 = item.y;
-          const w = typeof item.width === "number" ? item.width : 0;
-          const h = typeof item.height === "number" ? item.height : 0;
-          x2 = item.x + w;
-          y2 = item.y + h;
-        } else {
-          continue;
-        }
-        if (x2 <= x1 || y2 <= y1) continue;
-        const [x1v, y1v] = viewport.convertToViewportPoint(x1, y1);
-        const [x2v, y2v] = viewport.convertToViewportPoint(x2, y2);
-        const left = Math.min(x1v, x2v);
-        const top = Math.min(y1v, y2v);
-        const width = Math.abs(x2v - x1v);
-        const height = Math.abs(y2v - y1v);
-        if (width <= 0.5 || height <= 0.5) continue;
-        blocks.push({
-          text: str,
-          x: left / canvasWidth,
-          y: top / canvasHeight,
-          w: width / canvasWidth,
-          h: height / canvasHeight,
-        });
-      }
-      return blocks;
-    } catch (err) {
-      console.warn("Native Textextraktion fehlgeschlagen", err);
-      return [];
-    }
-  };
-
-  /* ---------- SERVERSEITIGE OCR ÜBER EDGE FUNCTION ---------- */
+  /* ---------- SERVER OCR (Edge Function) ---------- */
   const runServerOCR = async (imageDataUrl: string): Promise<WordBlock[] | null> => {
     try {
+      console.log("Sende Bild an Edge Function, Länge:", imageDataUrl.length);
       const { data, error } = await supabase.functions.invoke("pdf-ocr", {
         body: { imageDataUrl },
       });
-      if (error) throw error;
-      if (!data || !data.blocks) throw new Error("Ungültige Antwort der OCR-Funktion");
-      // Erwartetes Format: { blocks: [{ text: string, bbox: { x, y, w, h } }] }
-      // Koordinaten sind absolute Pixel im gesendeten Bild.
+      if (error) {
+        console.error("Edge Function Fehler:", error);
+        throw error;
+      }
+      console.log("Antwort der Edge Function:", data);
+      setDebugResponse(data); // für Debug-Anzeige
+
+      // Verschiedene mögliche Antwortformate akzeptieren
+      let blocks = null;
+      if (data && data.blocks && Array.isArray(data.blocks)) blocks = data.blocks;
+      else if (data && data.words && Array.isArray(data.words)) blocks = data.words;
+      else if (data && data.results && Array.isArray(data.results)) blocks = data.results;
+      else if (Array.isArray(data)) blocks = data;
+
+      if (!blocks || blocks.length === 0) {
+        console.warn("Keine Blöcke in der Antwort");
+        return [];
+      }
+
       const canvas = canvasRef.current;
       if (!canvas) return null;
       const imgWidth = canvas.width;
       const imgHeight = canvas.height;
-      const blocks: WordBlock[] = data.blocks.map((b: any) => ({
-        text: b.text,
-        x: b.bbox.x / imgWidth,
-        y: b.bbox.y / imgHeight,
-        w: b.bbox.w / imgWidth,
-        h: b.bbox.h / imgHeight,
-      }));
-      return blocks;
+
+      const wordBlocks: WordBlock[] = blocks
+        .map((b: any) => {
+          let x = 0, y = 0, w = 0, h = 0;
+          if (b.bbox) {
+            x = b.bbox.x;
+            y = b.bbox.y;
+            w = b.bbox.w;
+            h = b.bbox.h;
+          } else if (typeof b.x === "number" && typeof b.y === "number") {
+            x = b.x;
+            y = b.y;
+            w = b.w || b.width || 0;
+            h = b.h || b.height || 0;
+          } else {
+            console.warn("Block ohne Positionsdaten:", b);
+            return null;
+          }
+          const text = b.text || "";
+          if (text.trim().length === 0) return null;
+          return {
+            text: text,
+            x: x / imgWidth,
+            y: y / imgHeight,
+            w: w / imgWidth,
+            h: h / imgHeight,
+          };
+        })
+        .filter((b): b is WordBlock => b !== null);
+
+      console.log(`${wordBlocks.length} Wort-Blöcke konvertiert`);
+      return wordBlocks;
     } catch (err: any) {
       console.error("Server-OCR Fehler:", err);
-      toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
-      return null;
+      throw err;
     }
   };
 
-  /* ---------- RENDER SEITE + TEXTERKENNUNG (hybrid) ---------- */
+  /* ---------- SEITE RENDERN + OCR (erzwungen) ---------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
       setWordBlocks([]);
       setPageOcrText("");
+      setDebugResponse(null);
       const page = await pdfDoc.getPage(activeMeta.idx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
       const canvas = canvasRef.current;
@@ -191,46 +179,31 @@ const AIPage = () => {
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      // 1. Versuche native Textextraktion
-      let words = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
-      const fullTextNative = words.map(w => w.text).join(" ");
-      if (fullTextNative.length >= MIN_TEXT_LENGTH_FOR_NATIVE) {
-        // Genügend Text gefunden => native Methode verwenden
-        setWordBlocks(words);
-        setPageOcrText(fullTextNative);
-        await supabase.from("pdf_pages").upsert({
-          document_id: activeDoc!.id,
-          page_index: activeMeta.idx,
-          ocr_text: fullTextNative,
-          ocr_blocks: words as any,
-        }, { onConflict: "document_id,page_index" });
-        return;
-      }
-
-      // 2. Native Extraktion liefert zu wenig Text => Server-OCR starten
-      setOcrLoading(true);
-      try {
-        const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        const ocrWords = await runServerOCR(imageDataUrl);
-        if (ocrWords && ocrWords.length > 0) {
-          setWordBlocks(ocrWords);
-          const fullText = ocrWords.map(w => w.text).join(" ");
-          setPageOcrText(fullText);
-          await supabase.from("pdf_pages").upsert({
-            document_id: activeDoc!.id,
-            page_index: activeMeta.idx,
-            ocr_text: fullText,
-            ocr_blocks: ocrWords as any,
-          }, { onConflict: "document_id,page_index" });
-          toast.success(`${ocrWords.length} Wörter durch Server-OCR erkannt`);
-        } else {
-          toast.warning("Keine Wörter erkannt (Server-OCR lieferte leeres Ergebnis)");
+      if (FORCE_SERVER_OCR) {
+        setOcrLoading(true);
+        try {
+          const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          const words = await runServerOCR(imageDataUrl);
+          if (words && words.length > 0) {
+            setWordBlocks(words);
+            const fullText = words.map(w => w.text).join(" ");
+            setPageOcrText(fullText);
+            await supabase.from("pdf_pages").upsert({
+              document_id: activeDoc!.id,
+              page_index: activeMeta.idx,
+              ocr_text: fullText,
+              ocr_blocks: words as any,
+            }, { onConflict: "document_id,page_index" });
+            toast.success(`${words.length} Wörter erkannt (Server-OCR)`);
+          } else {
+            toast.error("Server-OCR lieferte keine Wörter. Bitte Debug-Info prüfen.");
+          }
+        } catch (err: any) {
+          console.error(err);
+          toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
+        } finally {
+          setOcrLoading(false);
         }
-      } catch (err) {
-        console.error("Server-OCR fehlgeschlagen", err);
-        toast.error("Server-OCR fehlgeschlagen. Verwende ggf. nur native Extraktion.");
-      } finally {
-        setOcrLoading(false);
       }
     };
     run();
@@ -256,7 +229,7 @@ const AIPage = () => {
         }, { onConflict: "document_id,page_index" });
         toast.success(`${words.length} Wörter erkannt (Server-OCR)`);
       } else {
-        toast.warning("Keine Wörter erkannt");
+        toast.error("Server-OCR lieferte keine Wörter.");
       }
     } catch (err: any) {
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
@@ -265,7 +238,7 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- UPLOAD, PAGE ACTIONS, NOTES, INSERT etc. (bleiben gleich) ---------- */
+  /* ---------- UPLOAD, PAGE ACTIONS, NOTES, INSERT ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
     if (file.type !== "application/pdf") { toast.error("Nur PDF-Dateien"); return; }
@@ -485,6 +458,24 @@ const AIPage = () => {
                   />
                 ))}
               </div>
+              {/* Debug-Button und Anzeige */}
+              {debugResponse && (
+                <div className="mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDebug(!showDebug)}
+                    className="text-xs"
+                  >
+                    <Bug className="h-3 w-3 mr-1" /> OCR Debug
+                  </Button>
+                  {showDebug && (
+                    <pre className="mt-2 text-xs bg-black/80 text-white p-2 rounded overflow-auto max-h-60">
+                      {JSON.stringify(debugResponse, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
             </Card>
           </div>
         )}
