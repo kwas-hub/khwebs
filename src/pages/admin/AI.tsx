@@ -31,13 +31,11 @@ const AIPage = () => {
   const [notes, setNotes] = useState("");
   const [wordBlocks, setWordBlocks] = useState<WordBlock[]>([]);
   const [pageOcrText, setPageOcrText] = useState("");
-  const [ocrRunning, setOcrRunning] = useState(false);
-  const [ocrProgress, setOcrProgress] = useState({ current: 0, total: 0 });
+  const [ocrLoading, setOcrLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [renderedSize, setRenderedSize] = useState({ w: 0, h: 0 });
-  const [ocrDebug, setOcrDebug] = useState<{ response: any; error: string | null; source: string; details?: any }>({ response: null, error: null, source: "" });
+  const [ocrDebug, setOcrDebug] = useState<{ response: any; error: string | null; source: string }>({ response: null, error: null, source: "" });
   const [showDebug, setShowDebug] = useState(false);
-  const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -63,7 +61,6 @@ const AIPage = () => {
       setNotes(activeDoc.notes || "");
       setActivePageOrderIdx(0);
       setThumbs({});
-      setOcrCache({});
       const { data, error } = await supabase.storage.from("pdfs").download(activeDoc.storage_path);
       if (error) { toast.error("Download fehlgeschlagen"); return; }
       const buf = await data.arrayBuffer();
@@ -111,7 +108,7 @@ const AIPage = () => {
         if (!str || str.trim() === "") continue;
         let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
         if (item.transform && Array.isArray(item.transform) && item.transform.length >= 6) {
-          const [, , , , e, f] = item.transform;
+          const [a, b, c, d, e, f] = item.transform;
           x1 = e;
           y1 = f;
           const w = typeof item.width === "number" ? item.width : 0;
@@ -151,61 +148,43 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- SERVER OCR MIT ZERLEGUNG IN EINZELNE WÖRTER (ABGESICHERT) ---------- */
-  const runServerOCRForImage = async (imageDataUrl: string, pageIndex: number): Promise<WordBlock[] | null> => {
-    setOcrDebug(prev => ({ ...prev, error: null, response: null, source: "server-start", details: null }));
+  /* ---------- SERVER OCR MIT ZERLEGUNG IN EINZELNE WÖRTER ---------- */
+  const runServerOCR = async (imageDataUrl: string): Promise<WordBlock[] | null> => {
+    setOcrDebug({ response: null, error: null, source: "" });
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      
       const { data, error } = await supabase.functions.invoke("pdf-ocr", {
         body: { imageDataUrl },
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
-      
-      if (error) {
-        console.error("Edge Function Fehler (error-Objekt):", error);
-        setOcrDebug({ response: null, error: error.message, source: "server-error", details: error });
-        throw new Error(error.message || "Edge Function Fehler");
-      }
-      
-      console.log("Antwort (roh):", data);
-      setOcrDebug({ response: data, error: null, source: "server-response", details: null });
-      
+      if (error) throw error;
+      setOcrDebug({ response: data, error: null, source: "server" });
+
       let blocks = data?.blocks;
       if (!blocks || !Array.isArray(blocks)) {
-        // Alternative Felder versuchen
-        if (data?.results && Array.isArray(data.results)) blocks = data.results;
-        else if (data?.words && Array.isArray(data.words)) blocks = data.words;
-        else if (Array.isArray(data)) blocks = data;
-        else {
-          throw new Error("Unbekanntes Antwortformat: " + JSON.stringify(data).substring(0, 200));
-        }
+        console.warn("Kein blocks-Array erhalten");
+        return [];
       }
-      
-      if (!blocks.length) return [];
-      
+
       const canvas = canvasRef.current;
-      if (!canvas) throw new Error("Canvas nicht verfügbar");
-      
+      if (!canvas) return null;
+
       const wordBlocks: WordBlock[] = [];
+
       for (const block of blocks) {
         const text = block.text || "";
         if (!text.trim()) continue;
         const bbox = block.bbox;
-        if (!bbox) {
-          console.warn("Block ohne bbox:", block);
-          continue;
-        }
+        if (!bbox) continue;
+        // Block ist eine Zeile -> in Wörter zerlegen
         const words = text.split(/\s+/).filter(w => w.length > 0);
         if (words.length === 0) continue;
+
         const totalChars = text.length;
         let currentCharPos = 0;
         const blockLeft = bbox.x;
         const blockTop = bbox.y;
         const blockWidth = bbox.w;
         const blockHeight = bbox.h;
+
         for (const word of words) {
           const wordStart = text.indexOf(word, currentCharPos);
           if (wordStart === -1) {
@@ -227,122 +206,35 @@ const AIPage = () => {
           currentCharPos = wordEnd + 1;
         }
       }
+
+      console.log(`🧩 ${wordBlocks.length} einzelne Wörter aus Zeilenblöcken erzeugt`);
       return wordBlocks;
     } catch (err: any) {
-      console.error("Detaillierter OCR-Fehler:", err);
-      setOcrDebug(prev => ({ ...prev, error: err.message || String(err), source: "exception", details: err }));
+      console.error(err);
+      setOcrDebug({ response: null, error: err.message, source: "exception" });
       return null;
     }
   };
 
-  /* ---------- OCR FÜR EINE SEITE (mit temporärem Canvas) ---------- */
-  const performOCRForPage = async (pageIndex: number, canvasElement?: HTMLCanvasElement): Promise<WordBlock[] | null> => {
+  /* ---------- TEST-EDGE-FUNCTION ---------- */
+  const testEdgeFunction = async () => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const testImage = canvas.toDataURL("image/jpeg", 0.5);
+    toast.info("Teste Edge Function...");
     try {
-      let canvas = canvasElement;
-      if (!canvas) {
-        // Temporären Canvas erzeugen, um die Seite zu rendern
-        if (!pdfDoc) return null;
-        const page = await pdfDoc.getPage(pageIndex + 1);
-        const pm = pageOrder.find(p => p.idx === pageIndex);
-        const rotation = pm?.rotation || 0;
-        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation });
-        const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = viewport.width;
-        tempCanvas.height = viewport.height;
-        const ctx = tempCanvas.getContext("2d")!;
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        canvas = tempCanvas;
-      }
-      if (!canvas) return null;
-      const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      const words = await runServerOCRForImage(imageDataUrl, pageIndex);
+      const words = await runServerOCR(testImage);
       if (words && words.length > 0) {
-        // In DB speichern (optional)
-        supabase.from("pdf_pages").upsert({
-          document_id: activeDoc!.id,
-          page_index: pageIndex,
-          ocr_text: words.map(w => w.text).join(" "),
-          ocr_blocks: words as any,
-        }, { onConflict: "document_id,page_index" }).catch(console.warn);
-        return words;
+        toast.success(`Test erfolgreich: ${words.length} Wörter erkannt`);
       } else {
-        // Fallback native Extraktion
-        if (!pdfDoc) return null;
-        const page = await pdfDoc.getPage(pageIndex + 1);
-        const pm = pageOrder.find(p => p.idx === pageIndex);
-        const rotation = pm?.rotation || 0;
-        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation });
-        const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
-        if (nativeWords.length > 0) {
-          supabase.from("pdf_pages").upsert({
-            document_id: activeDoc!.id,
-            page_index: pageIndex,
-            ocr_text: nativeWords.map(w => w.text).join(" "),
-            ocr_blocks: nativeWords as any,
-          }, { onConflict: "document_id,page_index" }).catch(console.warn);
-          return nativeWords;
-        }
-        return [];
+        toast.error("Test fehlgeschlagen: Keine Wörter erkannt");
       }
-    } catch (err) {
-      console.error(`OCR Fehler für Seite ${pageIndex + 1}:`, err);
-      return null;
+    } catch (e: any) {
+      toast.error("Testfehler: " + e.message);
     }
   };
 
-  /* ---------- OCR FÜR ALLE SEITEN (mit Cache) ---------- */
-  const runOCRForAllPages = async () => {
-    if (!pdfDoc || !activeDoc) {
-      toast.error("Kein PDF geladen");
-      return;
-    }
-    if (pageOrder.length === 0) return;
-    setOcrRunning(true);
-    setOcrProgress({ current: 0, total: pageOrder.length });
-    const newCache: Record<number, WordBlock[]> = {};
-    
-    for (let i = 0; i < pageOrder.length; i++) {
-      const pm = pageOrder[i];
-      const pageIdx = pm.idx;
-      // Prüfe Cache
-      if (ocrCache[pageIdx]) {
-        newCache[pageIdx] = ocrCache[pageIdx];
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
-        continue;
-      }
-      // Prüfe DB
-      const { data: existing } = await supabase
-        .from("pdf_pages")
-        .select("ocr_blocks")
-        .eq("document_id", activeDoc.id)
-        .eq("page_index", pageIdx)
-        .maybeSingle();
-      if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-        const blocks = existing.ocr_blocks as WordBlock[];
-        newCache[pageIdx] = blocks;
-        setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
-        continue;
-      }
-      // OCR durchführen (temporärer Canvas)
-      const words = await performOCRForPage(pageIdx);
-      if (words && words.length > 0) {
-        newCache[pageIdx] = words;
-        setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
-      } else {
-        newCache[pageIdx] = [];
-      }
-      setOcrProgress({ current: i + 1, total: pageOrder.length });
-    }
-    setOcrRunning(false);
-    toast.success(`OCR für ${pageOrder.length} Seiten abgeschlossen`);
-    if (activeMeta && newCache[activeMeta.idx]) {
-      setWordBlocks(newCache[activeMeta.idx]);
-      setPageOcrText(newCache[activeMeta.idx].map(w => w.text).join(" "));
-    }
-  };
-
-  /* ---------- SEITE RENDERN + AUS CACHE ODER DB LADEN ---------- */
+  /* ---------- SEITE RENDERN + OCR (automatisch) ---------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
@@ -356,57 +248,90 @@ const AIPage = () => {
       canvas.height = viewport.height;
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
-      
-      // Aus Cache laden
-      if (ocrCache[activeMeta.idx]) {
-        const cached = ocrCache[activeMeta.idx];
-        setWordBlocks(cached);
-        setPageOcrText(cached.map(w => w.text).join(" "));
-        setOcrDebug(prev => ({ ...prev, source: "cache" }));
-        return;
+
+      setOcrLoading(true);
+      try {
+        const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        let words = await runServerOCR(imageDataUrl);
+        if (words && words.length > 0) {
+          setWordBlocks(words);
+          setPageOcrText(words.map(w => w.text).join(" "));
+          setOcrDebug(prev => ({ ...prev, source: "server-ocr-success" }));
+          await supabase.from("pdf_pages").upsert({
+            document_id: activeDoc!.id,
+            page_index: activeMeta.idx,
+            ocr_text: words.map(w => w.text).join(" "),
+            ocr_blocks: words as any,
+          }, { onConflict: "document_id,page_index" });
+          toast.success(`${words.length} Wörter (Server-OCR)`);
+        } else {
+          const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
+          if (nativeWords && nativeWords.length > 0) {
+            setWordBlocks(nativeWords);
+            setPageOcrText(nativeWords.map(w => w.text).join(" "));
+            setOcrDebug(prev => ({ ...prev, source: "native-fallback" }));
+            toast.warning(`${nativeWords.length} Wörter (native PDF.js)`);
+          } else {
+            setOcrDebug(prev => ({ ...prev, source: "no-words" }));
+            toast.error("Keine Wörter erkannt");
+          }
+        }
+      } catch (err: any) {
+        console.error(err);
+        toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
+        const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
+        if (nativeWords.length > 0) {
+          setWordBlocks(nativeWords);
+          setPageOcrText(nativeWords.map(w => w.text).join(" "));
+          setOcrDebug(prev => ({ ...prev, source: "native-after-error" }));
+        }
+      } finally {
+        setOcrLoading(false);
       }
-      // Aus DB laden
-      const { data: existing } = await supabase
-        .from("pdf_pages")
-        .select("ocr_blocks")
-        .eq("document_id", activeDoc!.id)
-        .eq("page_index", activeMeta.idx)
-        .maybeSingle();
-      if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-        const blocks = existing.ocr_blocks as WordBlock[];
-        setWordBlocks(blocks);
-        setPageOcrText(blocks.map(w => w.text).join(" "));
-        setOcrCache(prev => ({ ...prev, [activeMeta.idx]: blocks }));
-        setOcrDebug(prev => ({ ...prev, source: "database" }));
-        return;
-      }
-      setOcrDebug(prev => ({ ...prev, source: "none", response: null, error: null }));
     };
     run();
-  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache]);
+  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id]);
 
-  /* ---------- MANUELLE OCR FÜR AKTUELLE SEITE ---------- */
-  const runOCRCurrentPage = async () => {
+  /* ---------- MANUELLER OCR BUTTON ---------- */
+  const runOCR = async () => {
     if (!pdfDoc || !activeMeta || !canvasRef.current) return;
-    setOcrRunning(true);
+    setOcrLoading(true);
     try {
-      const words = await performOCRForPage(activeMeta.idx, canvasRef.current);
+      const canvas = canvasRef.current;
+      const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      let words = await runServerOCR(imageDataUrl);
       if (words && words.length > 0) {
         setWordBlocks(words);
         setPageOcrText(words.map(w => w.text).join(" "));
-        setOcrCache(prev => ({ ...prev, [activeMeta.idx]: words }));
-        toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
+        setOcrDebug(prev => ({ ...prev, source: "manual-server-success" }));
+        await supabase.from("pdf_pages").upsert({
+          document_id: activeDoc!.id,
+          page_index: activeMeta.idx,
+          ocr_text: words.map(w => w.text).join(" "),
+          ocr_blocks: words as any,
+        }, { onConflict: "document_id,page_index" });
+        toast.success(`${words.length} Wörter erkannt`);
       } else {
-        toast.error("Keine Wörter erkannt");
+        const page = await pdfDoc.getPage(activeMeta.idx + 1);
+        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
+        const nativeWords = await extractNativeWordBlocks(page, viewport, canvas.width, canvas.height);
+        if (nativeWords.length > 0) {
+          setWordBlocks(nativeWords);
+          setPageOcrText(nativeWords.map(w => w.text).join(" "));
+          setOcrDebug(prev => ({ ...prev, source: "manual-native-fallback" }));
+          toast.warning(`${nativeWords.length} Wörter (native PDF.js)`);
+        } else {
+          toast.error("Keine Wörter erkannt");
+        }
       }
     } catch (err: any) {
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
     } finally {
-      setOcrRunning(false);
+      setOcrLoading(false);
     }
   };
 
-  /* ---------- WEITERE FUNKTIONEN (Upload, Seitenaktionen, Notes, Export, Insert) ---------- */
+  /* ---------- WEITERE HILFSFUNKTIONEN ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
     if (file.type !== "application/pdf") { toast.error("Nur PDF-Dateien"); return; }
@@ -431,6 +356,7 @@ const AIPage = () => {
       setUploading(false);
     }
   };
+
   const persistOrder = async (newOrder: PageMeta[], focusIdx?: number) => {
     if (!activeDoc) return;
     setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, page_order: newOrder } : d));
@@ -553,18 +479,7 @@ const AIPage = () => {
           <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_1fr] gap-4">
             {/* Seitenleiste */}
             <Card className="p-3 space-y-2 max-h-[calc(100vh-220px)] overflow-y-auto">
-              <div className="flex justify-between items-center px-1 mb-2">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
-                <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
-                  {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                  OCR alle
-                </Button>
-              </div>
-              {ocrRunning && (
-                <div className="text-xs text-center text-muted-foreground mb-2">
-                  OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
-                </div>
-              )}
+              <div className="text-[10px] font-bold uppercase text-muted-foreground px-1">Seiten ({pageOrder.length})</div>
               {pageOrder.map((pm, i) => (
                 <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
                   <div className="aspect-[3/4] bg-muted flex items-center justify-center">
@@ -589,10 +504,11 @@ const AIPage = () => {
                   await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
                 }} />
                 <div className="flex gap-1">
-                  <Button onClick={runOCRCurrentPage} disabled={ocrRunning} size="sm">
-                    {ocrRunning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                    Seite OCR
+                  <Button onClick={runOCR} disabled={ocrLoading} size="sm">
+                    {ocrLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                    OCR
                   </Button>
+                  <Button onClick={testEdgeFunction} variant="outline" size="sm"><WifiOff className="h-4 w-4" /></Button>
                 </div>
               </div>
               <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
@@ -601,6 +517,11 @@ const AIPage = () => {
 
             {/* Vorschau mit Wort-Overlays */}
             <Card className="p-3 max-h-[calc(100vh-220px)] overflow-auto bg-muted/30 relative">
+              {ocrLoading && (
+                <div className="absolute inset-0 z-10 bg-background/70 flex items-center justify-center backdrop-blur-sm rounded-md">
+                  <div className="flex flex-col items-center gap-2"><Loader2 className="h-8 w-8 animate-spin text-primary" /><span className="text-xs font-bold">OCR läuft...</span></div>
+                </div>
+              )}
               <div className="relative inline-block">
                 <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
                 {wordBlocks.map((word, i) => (
@@ -616,7 +537,7 @@ const AIPage = () => {
                   <div className="mt-1">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
                   {ocrDebug.error && <div className="text-red-600 mt-1">❌ Fehler: {ocrDebug.error}</div>}
                   {showDebug && ocrDebug.response && <pre className="mt-2 overflow-auto max-h-60 bg-black text-white p-2 rounded">{JSON.stringify(ocrDebug.response, null, 2)}</pre>}
-                  {wordBlocks.length === 0 && !ocrRunning && <div className="text-red-600 mt-1">⚠️ Keine Wörter erkannt.</div>}
+                  {wordBlocks.length === 0 && !ocrLoading && <div className="text-red-600 mt-1">⚠️ Keine Wörter erkannt.</div>}
                 </div>
               )}
             </Card>
