@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard, Newspaper, CalendarDays, LogOut, Menu, X,
   ShieldCheck, FileText, Users as UsersIcon, Hourglass, Sparkles,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/admin/NotificationBell";
@@ -21,11 +22,19 @@ const allItems = [
   { title: "Users", url: "/admin/users", icon: UsersIcon, end: false, roles: ["admin"] as AppRole[] },
 ];
 
+// Zustand der Sidebar im localStorage speichern
+const SIDEBAR_STORAGE_KEY = "admin-sidebar-collapsed";
+
 const AdminLayout = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { session, role, status, loading, signOut } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    // Initialen Zustand aus localStorage laden
+    const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return saved === "true";
+  });
 
   // Redirect immediately when session disappears (logout)
   useEffect(() => {
@@ -34,9 +43,18 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => { setIsMobileMenuOpen(false); }, [location]);
 
+  // Sidebar-Zustand speichern
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarCollapsed));
+  }, [isSidebarCollapsed]);
+
   const handleLogout = async () => {
     await signOut();
     navigate("/auth", { replace: true });
+  };
+
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed(prev => !prev);
   };
 
   if (loading || !session) {
@@ -76,40 +94,79 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#09090b] text-foreground flex flex-col md:flex-row">
-      <aside className="hidden md:flex flex-col w-72 p-6 border-r border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 h-screen">
-        <div className="flex items-center gap-3 px-2 mb-10">
-          <div className="w-10 h-10 bg-primary shadow-lg shadow-primary/20 rounded-xl flex items-center justify-center">
+      {/* DESKTOP SIDEBAR (zuklappbar) */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col border-r border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 h-screen transition-all duration-300 ease-in-out",
+          isSidebarCollapsed ? "w-20" : "w-72"
+        )}
+      >
+        {/* Logo / Header Bereich */}
+        <div className={cn(
+          "flex items-center gap-3 px-2 mb-10 mt-6 transition-all duration-300",
+          isSidebarCollapsed ? "justify-center" : "px-2"
+        )}>
+          <div className="w-10 h-10 bg-primary shadow-lg shadow-primary/20 rounded-xl flex items-center justify-center shrink-0">
             <ShieldCheck className="w-6 h-6 text-primary-foreground" />
           </div>
-          <div className="flex flex-col">
-            <span className="font-bold tracking-tight text-base leading-none">Admin Panel</span>
-            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest mt-1">{role}</span>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="flex flex-col overflow-hidden">
+              <span className="font-bold tracking-tight text-base leading-none">Admin Panel</span>
+              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest mt-1">{role}</span>
+            </div>
+          )}
         </div>
 
-        <nav className="flex-1 space-y-1">
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 px-2">
           {items.map((item) => (
-            <NavLink key={item.url} to={item.url} end={item.end}
+            <NavLink
+              key={item.url}
+              to={item.url}
+              end={item.end}
               className={({ isActive }) => cn(
                 "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative",
-                isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}>
-              <item.icon className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
-              <span className="font-medium text-sm">{item.title}</span>
+                isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                isSidebarCollapsed && "justify-center px-2"
+              )}
+              title={isSidebarCollapsed ? item.title : undefined}
+            >
+              <item.icon className="w-5 h-5 transition-transform duration-300 group-hover:scale-110 shrink-0" />
+              {!isSidebarCollapsed && <span className="font-medium text-sm">{item.title}</span>}
             </NavLink>
           ))}
         </nav>
 
-        <div className="mt-auto space-y-2 pt-6 border-t border-border/50">
-          <button onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-all duration-200">
-            <LogOut className="w-5 h-5" />
-            <span className="font-medium text-sm">Abmelden</span>
+        {/* Footer Bereich mit Abmelden-Button */}
+        <div className="mt-auto space-y-2 pt-6 border-t border-border/50 mb-6">
+          <button
+            onClick={handleLogout}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 w-full rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-all duration-200",
+              isSidebarCollapsed && "justify-center px-2"
+            )}
+            title={isSidebarCollapsed ? "Abmelden" : undefined}
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            {!isSidebarCollapsed && <span className="font-medium text-sm">Abmelden</span>}
           </button>
         </div>
+
+        {/* Collapse / Expand Button */}
+        <button
+          onClick={toggleSidebar}
+          className="absolute -right-3 top-20 bg-primary text-primary-foreground rounded-full p-1 shadow-md hover:scale-110 transition-transform duration-200 z-50"
+          title={isSidebarCollapsed ? "Ausklappen" : "Einklappen"}
+        >
+          {isSidebarCollapsed ? (
+            <ChevronRight className="w-4 h-4" />
+          ) : (
+            <ChevronLeft className="w-4 h-4" />
+          )}
+        </button>
       </aside>
 
-      {/* MOBILE HEADER: theme + notification icons next to each other */}
+      {/* MOBILE HEADER */}
       <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-border/50 bg-background/80 backdrop-blur-lg sticky top-0 z-50">
         <div className="flex items-center gap-2">
           <ThemeToggle />
@@ -125,6 +182,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </button>
       </header>
 
+      {/* MOBILE OVERLAY MENU */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-[60] bg-background/95 backdrop-blur-md md:hidden animate-in fade-in duration-200">
           <div className="flex flex-col h-full p-8">
@@ -150,6 +208,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </div>
       )}
 
+      {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
@@ -161,11 +220,16 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           <ThemeToggle />
         </header>
 
-        <div className="flex-1 p-4 md:p-10 pb-24 md:pb-10 overflow-auto">
-          <div className="max-w-6xl mx-auto">{children}</div>
+        <div className={cn(
+          "flex-1 p-4 pb-24 transition-all duration-300",
+          "md:p-6 md:pb-10",
+          "lg:p-8"
+        )}>
+          <div className="max-w-7xl mx-auto">{children}</div>
         </div>
       </main>
 
+      {/* MOBILE BOTTOM NAVIGATION */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-xl border-t border-border/50 px-2 flex items-center justify-around z-50">
         {items.map((item) => (
           <NavLink key={item.url} to={item.url} end={item.end}
