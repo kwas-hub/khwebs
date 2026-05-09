@@ -19,7 +19,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 type Doc = { id: string; name: string; storage_path: string; page_order: PageMeta[]; notes: string; created_at: string };
 type PageMeta = { idx: number; rotation: number };
-type Block = { text: string; bbox: { x: number; y: number; w: number; h: number } };
+type WordBlock = { text: string; x: number; y: number; w: number; h: number }; // relative % (0..1)
 
 const RENDER_SCALE = 1.4;
 
@@ -31,7 +31,7 @@ const AIPage = () => {
   const [activePageOrderIdx, setActivePageOrderIdx] = useState(0);
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [notes, setNotes] = useState("");
-  const [blocks, setBlocks] = useState<Block[]>([]);
+  const [wordBlocks, setWordBlocks] = useState<WordBlock[]>([]);
   const [pageOcrText, setPageOcrText] = useState("");
   const [ocrLoading, setOcrLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -94,27 +94,73 @@ const AIPage = () => {
     return () => { cancelled = true; };
   }, [pdfDoc, pageOrder.length]);
 
-  /* ------- RENDER ACTIVE PAGE ------- */
+  /* ------- HELPER: EXTRACT WORD BLOCKS FROM PDF PAGE ------- */
+  const extractWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
+    const textContent = await page.getTextContent();
+    const items = textContent.items;
+    const blocks: WordBlock[] = [];
+
+    for (const item of items) {
+      if (!item.str || item.str.trim() === "") continue;
+      // item.transform: [scaleX, skewX, skewY, scaleY, translateX, translateY]
+      const [a, b, c, d, e, f] = item.transform;
+      const x1 = e;
+      const y1 = f;
+      const x2 = e + (item.width ?? 0);
+      const y2 = f + (item.height ?? 0);
+      // convert PDF coordinates (origin bottom-left) to canvas pixels (origin top-left)
+      const [x1v, y1v] = viewport.convertToViewportPoint(x1, y1);
+      const [x2v, y2v] = viewport.convertToViewportPoint(x2, y2);
+      const left = Math.min(x1v, x2v);
+      const top = Math.min(y1v, y2v);
+      const width = Math.abs(x2v - x1v);
+      const height = Math.abs(y2v - y1v);
+      if (width <= 0.5 || height <= 0.5) continue; // ignore degenerate
+      blocks.push({
+        text: item.str,
+        x: left / canvasWidth,
+        y: top / canvasHeight,
+        w: width / canvasWidth,
+        h: height / canvasHeight,
+      });
+    }
+    return blocks;
+  };
+
+  /* ------- RENDER ACTIVE PAGE + EXTRACT WORD BLOCKS ------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
-      setBlocks([]); setPageOcrText("");
+      setWordBlocks([]);
+      setPageOcrText("");
       const page = await pdfDoc.getPage(activeMeta.idx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
       const canvas = canvasRef.current;
-      canvas.width = viewport.width; canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d")!;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
       setRenderedSize({ w: viewport.width, h: viewport.height });
-      await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-      // Load existing OCR if any
-      const { data } = await supabase.from("pdf_pages").select("*")
-        .eq("document_id", activeDoc!.id).eq("page_index", activeMeta.idx).maybeSingle();
-      if (data) {
-        setBlocks((data.ocr_blocks as Block[]) || []);
-        setPageOcrText(data.ocr_text || "");
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      // Extract word blocks from the same page (client‑side OCR)
+      try {
+        const words = await extractWordBlocks(page, viewport, canvas.width, canvas.height);
+        setWordBlocks(words);
+        const fullText = words.map(w => w.text).join(" ");
+        setPageOcrText(fullText);
+        // Optional: persist in database
+        await supabase.from("pdf_pages").upsert({
+          document_id: activeDoc!.id,
+          page_index: activeMeta.idx,
+          ocr_text: fullText,
+          ocr_blocks: words as any, // store relative word blocks
+        }, { onConflict: "document_id,page_index" });
+      } catch (err) {
+        console.warn("text extraction failed", err);
       }
     };
     run();
-  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx]);
+  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id]);
 
   /* ------- UPLOAD ------- */
   const handleUpload = async (file: File) => {
@@ -125,7 +171,6 @@ const AIPage = () => {
       const path = `${userId}/${Date.now()}-${file.name}`;
       const { error: upErr } = await supabase.storage.from("pdfs").upload(path, file);
       if (upErr) throw upErr;
-      // Determine page count
       const buf = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       const order: PageMeta[] = Array.from({ length: pdf.numPages }, (_, i) => ({ idx: i, rotation: 0 }));
@@ -174,25 +219,24 @@ const AIPage = () => {
     await supabase.from("pdf_documents").update({ notes: v }).eq("id", activeDoc.id);
   };
 
-  /* ------- OCR ------- */
+  /* ------- OCR BUTTON (re‑extract words, already done on render, but re-run if needed) ------- */
   const runOCR = async () => {
-    if (!canvasRef.current || !activeDoc || !activeMeta) return;
-    setOcrLoading(true); setBlocks([]); setPageOcrText("");
+    if (!pdfDoc || !activeMeta || !canvasRef.current) return;
+    setOcrLoading(true);
     try {
-      const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.85);
-      const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl: dataUrl } });
-      if (error) throw error;
-      const ocrBlocks: Block[] = data.blocks || [];
-      const fullText: string = data.full_text || "";
-      setBlocks(ocrBlocks); setPageOcrText(fullText);
-      // Persist
+      const page = await pdfDoc.getPage(activeMeta.idx + 1);
+      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
+      const words = await extractWordBlocks(page, viewport, renderedSize.w || viewport.width, renderedSize.h || viewport.height);
+      setWordBlocks(words);
+      const fullText = words.map(w => w.text).join(" ");
+      setPageOcrText(fullText);
       await supabase.from("pdf_pages").upsert({
-        document_id: activeDoc.id, page_index: activeMeta.idx,
-        ocr_text: fullText, ocr_blocks: ocrBlocks as any,
-      }, { onConflict: "document_id,page_index" } as any).then(async () => {
-        // upsert may fail without unique; try delete+insert fallback
-      });
-      toast.success(`${ocrBlocks.length} Textblöcke erkannt`);
+        document_id: activeDoc!.id,
+        page_index: activeMeta.idx,
+        ocr_text: fullText,
+        ocr_blocks: words as any,
+      }, { onConflict: "document_id,page_index" });
+      toast.success(`${words.length} Wörter erkannt`);
     } catch (e: any) {
       toast.error("OCR Fehler: " + (e.message || "Unbekannt"));
     } finally {
@@ -208,7 +252,6 @@ const AIPage = () => {
     const end = ta.selectionEnd ?? notes.length;
     const before = notes.slice(0, start);
     const after = notes.slice(end);
-    // smart linebreak: add newline if previous char isn't whitespace/newline
     const prefix = before.length > 0 && !/\s$/.test(before) ? "\n" : "";
     const suffix = after.length > 0 && !/^\s/.test(after) ? "\n" : "";
     const inserted = prefix + txt.trim() + suffix;
@@ -308,13 +351,13 @@ const AIPage = () => {
                   onClick={() => setActivePageOrderIdx(i)}>
                   <div className="aspect-[3/4] bg-muted flex items-center justify-center">
                     {thumbs[pm.idx] ? (
-                      <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" style={{ transform: `rotate(0deg)` /* thumb already rotated via render */ }} />
+                      <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" />
                     ) : (
                       <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     )}
                   </div>
                   <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
-                  <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100" style={{ opacity: 1 }}>
+                  <div className="absolute bottom-1 right-1 flex gap-0.5">
                     <Button size="icon" variant="secondary" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
                     <Button size="icon" variant="secondary" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-3 w-3" /></Button>
                     <Button size="icon" variant="secondary" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-3 w-3" /></Button>
@@ -339,10 +382,10 @@ const AIPage = () => {
               </div>
               <Textarea ref={textareaRef} value={notes} onChange={(e) => saveNotes(e.target.value)}
                 className="flex-1 min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
-              <div className="text-[10px] text-muted-foreground mt-1">Klicke auf einen erkannten Block in der Vorschau, um ihn an der Cursorposition einzufügen.</div>
+              <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es an der Cursorposition einzufügen.</div>
             </Card>
 
-            {/* SPALTE 3: Vorschau */}
+            {/* SPALTE 3: Vorschau mit Wort‑Overlays */}
             <Card className="p-3 max-h-[calc(100vh-220px)] overflow-auto bg-muted/30">
               {ocrLoading && (
                 <div className="absolute inset-0 z-10 bg-background/70 flex items-center justify-center backdrop-blur-sm rounded-md">
@@ -354,17 +397,20 @@ const AIPage = () => {
               )}
               <div className="relative inline-block">
                 <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
-                {/* Overlays */}
-                {blocks.map((b, i) => (
-                  <button key={i} onClick={() => insertAtCursor(b.text)}
-                    title={b.text}
-                    className="absolute border-2 border-primary/60 bg-primary/10 hover:bg-primary/30 transition-colors cursor-pointer"
+                {/* Wort‑Overlays */}
+                {wordBlocks.map((word, i) => (
+                  <button
+                    key={i}
+                    onClick={() => insertAtCursor(word.text)}
+                    title={word.text}
+                    className="absolute border border-blue-400/60 bg-blue-500/10 hover:bg-blue-500/30 transition-colors cursor-pointer rounded-sm"
                     style={{
-                      left: `${b.bbox.x * 100}%`,
-                      top: `${b.bbox.y * 100}%`,
-                      width: `${b.bbox.w * 100}%`,
-                      height: `${b.bbox.h * 100}%`,
-                    }} />
+                      left: `${word.x * 100}%`,
+                      top: `${word.y * 100}%`,
+                      width: `${word.w * 100}%`,
+                      height: `${word.h * 100}%`,
+                    }}
+                  />
                 ))}
               </div>
             </Card>
