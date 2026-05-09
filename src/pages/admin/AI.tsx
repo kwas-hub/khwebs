@@ -37,7 +37,6 @@ const AIPage = () => {
   const [renderedSize, setRenderedSize] = useState({ w: 0, h: 0 });
   const [ocrDebug, setOcrDebug] = useState<{ response: any; error: string | null; source: string }>({ response: null, error: null, source: "" });
   const [showDebug, setShowDebug] = useState(false);
-  // Cache für OCR-Ergebnisse pro Seite (PageMeta.idx -> WordBlock[])
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,7 +53,6 @@ const AIPage = () => {
     const { data } = await supabase.from("pdf_documents").select("*").order("created_at", { ascending: false });
     setDocs((data ?? []) as unknown as Doc[]);
   }, [userId]);
-
   useEffect(() => { loadDocs(); }, [loadDocs]);
 
   /* ---------- LOAD PDF ---------- */
@@ -64,7 +62,7 @@ const AIPage = () => {
       setNotes(activeDoc.notes || "");
       setActivePageOrderIdx(0);
       setThumbs({});
-      setOcrCache({}); // Cache zurücksetzen bei neuem Dokument
+      setOcrCache({});
       const { data, error } = await supabase.storage.from("pdfs").download(activeDoc.storage_path);
       if (error) { toast.error("Download fehlgeschlagen"); return; }
       const buf = await data.arrayBuffer();
@@ -161,10 +159,8 @@ const AIPage = () => {
       if (error) throw error;
       let blocks = data?.blocks;
       if (!blocks || !Array.isArray(blocks)) return [];
-
       const canvas = canvasRef.current;
       if (!canvas) return null;
-
       const wordBlocks: WordBlock[] = [];
       for (const block of blocks) {
         const text = block.text || "";
@@ -213,7 +209,6 @@ const AIPage = () => {
       const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
       let words = await runServerOCRForImage(imageDataUrl);
       if (words && words.length > 0) {
-        // In DB speichern
         await supabase.from("pdf_pages").upsert({
           document_id: activeDoc!.id,
           page_index: pageIndex,
@@ -222,7 +217,6 @@ const AIPage = () => {
         }, { onConflict: "document_id,page_index" });
         return words;
       } else {
-        // Fallback native Extraktion
         if (!pdfDoc) return null;
         const page = await pdfDoc.getPage(pageIndex + 1);
         const pm = pageOrder.find(p => p.idx === pageIndex);
@@ -261,7 +255,6 @@ const AIPage = () => {
       const pm = pageOrder[i];
       const pageIdx = pm.idx;
 
-      // Prüfe Cache oder DB
       if (ocrCache[pageIdx]) {
         newCache[pageIdx] = ocrCache[pageIdx];
         setOcrProgress({ current: i + 1, total: pageOrder.length });
@@ -281,7 +274,6 @@ const AIPage = () => {
         continue;
       }
 
-      // Seite rendern (temporärer Canvas)
       const page = await pdfDoc.getPage(pageIdx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
       const tempCanvas = document.createElement("canvas");
@@ -302,8 +294,6 @@ const AIPage = () => {
 
     setOcrRunning(false);
     toast.success(`OCR für ${pageOrder.length} Seiten abgeschlossen`);
-
-    // Falls die aktuell sichtbare Seite jetzt im Cache ist, aktualisiere Anzeige
     if (activeMeta && newCache[activeMeta.idx]) {
       setWordBlocks(newCache[activeMeta.idx]);
       setPageOcrText(newCache[activeMeta.idx].map(w => w.text).join(" "));
@@ -325,7 +315,6 @@ const AIPage = () => {
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      // Aus Cache laden
       if (ocrCache[activeMeta.idx]) {
         const cached = ocrCache[activeMeta.idx];
         setWordBlocks(cached);
@@ -333,7 +322,6 @@ const AIPage = () => {
         setOcrDebug({ response: null, error: null, source: "cache" });
         return;
       }
-      // Aus DB laden
       const { data: existing } = await supabase
         .from("pdf_pages")
         .select("ocr_blocks")
@@ -348,13 +336,11 @@ const AIPage = () => {
         setOcrDebug({ response: null, error: null, source: "database" });
         return;
       }
-      // Keine OCR-Daten vorhanden
       setOcrDebug({ response: null, error: null, source: "none" });
     };
     run();
   }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache]);
 
-  /* ---------- MANUELLE OCR FÜR AKTUELLE SEITE ---------- */
   const runOCRCurrentPage = async () => {
     if (!pdfDoc || !activeMeta || !canvasRef.current) return;
     setOcrRunning(true);
@@ -484,32 +470,42 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- RENDER ---------- */
+  /* ---------- RENDER (responsiv optimiert) ---------- */
   return (
     <AdminLayout>
       <div className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2"><Sparkles className="h-7 w-7 text-primary" /> AI / OCR</h1>
-            <p className="text-sm text-muted-foreground">PDFs hochladen, Seiten bearbeiten, einzelne Wörter übernehmen.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+              <Sparkles className="h-6 w-6 sm:h-7 sm:w-7 text-primary" /> AI / OCR
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              PDFs hochladen, Seiten bearbeiten, einzelne Wörter übernehmen.
+            </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={activeDocId || ""} onValueChange={setActiveDocId}>
-              <SelectTrigger className="w-56"><SelectValue placeholder="Historie / PDF wählen" /></SelectTrigger>
+              <SelectTrigger className="w-48 sm:w-56 h-9 text-sm">
+                <SelectValue placeholder="Historie / PDF wählen" />
+              </SelectTrigger>
               <SelectContent>
                 {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground">Keine Dokumente</div>}
                 {docs.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
               </SelectContent>
             </Select>
             <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
-            <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+            <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} size="sm" className="h-9">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
               PDF hochladen
             </Button>
             {activeDoc && (
               <>
-                <Button variant="outline" onClick={exportEdited}><Download className="h-4 w-4 mr-2" />Export</Button>
-                <Button variant="destructive" size="icon" onClick={deleteDoc}><Trash2 className="h-4 w-4" /></Button>
+                <Button variant="outline" onClick={exportEdited} size="sm" className="h-9">
+                  <Download className="h-4 w-4 mr-1" />Export
+                </Button>
+                <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-9 w-9">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </>
             )}
           </div>
@@ -521,9 +517,9 @@ const AIPage = () => {
             <p>Lade ein PDF hoch oder wähle eines aus der Historie aus.</p>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_1fr] gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[260px_1fr_1fr] gap-4">
             {/* Seitenleiste */}
-            <Card className="p-3 space-y-2 max-h-[calc(100vh-220px)] overflow-y-auto">
+            <Card className="p-3 space-y-2 overflow-y-auto">
               <div className="flex justify-between items-center px-1 mb-2">
                 <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
                 <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
@@ -536,20 +532,22 @@ const AIPage = () => {
                   OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
                 </div>
               )}
-              {pageOrder.map((pm, i) => (
-                <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
-                  <div className="aspect-[3/4] bg-muted flex items-center justify-center">
-                    {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-1 gap-2">
+                {pageOrder.map((pm, i) => (
+                  <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
+                    <div className="aspect-[3/4] bg-muted flex items-center justify-center">
+                      {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                    </div>
+                    <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
+                    <div className="absolute bottom-1 right-1 flex gap-0.5">
+                      <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
+                      <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-3 w-3" /></Button>
+                      <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-3 w-3" /></Button>
+                      <Button size="icon" variant="destructive" className="h-6 w-6" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
                   </div>
-                  <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
-                  <div className="absolute bottom-1 right-1 flex gap-0.5">
-                    <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
-                    <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-3 w-3" /></Button>
-                    <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-3 w-3" /></Button>
-                    <Button size="icon" variant="destructive" className="h-6 w-6" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-3 w-3" /></Button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </Card>
 
             {/* Editor */}
@@ -566,13 +564,13 @@ const AIPage = () => {
                   </Button>
                 </div>
               </div>
-              <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
+              <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[250px] sm:min-h-[300px] md:min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
               <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
             </Card>
 
             {/* Vorschau mit Wort-Overlays */}
-            <Card className="p-3 max-h-[calc(100vh-220px)] overflow-auto bg-muted/30 relative">
-              <div className="relative inline-block">
+            <Card className="p-3 overflow-auto bg-muted/30 relative">
+              <div className="relative inline-block max-w-full">
                 <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
                 {wordBlocks.map((word, i) => (
                   <button key={i} onClick={() => insertAtCursor(word.text)} title={word.text}
@@ -583,10 +581,17 @@ const AIPage = () => {
               {/* Debug-Bereich */}
               {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && (
                 <div className="mt-3 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
-                  <div className="flex justify-between items-center"><span className="font-bold">🔍 OCR Debug</span><Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)}>{showDebug ? "Weniger" : "Mehr"} <Bug className="h-3 w-3 ml-1" /></Button></div>
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold">🔍 OCR Debug</span>
+                    <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-6 px-2">
+                      {showDebug ? "Weniger" : "Mehr"} <Bug className="h-3 w-3 ml-1" />
+                    </Button>
+                  </div>
                   <div className="mt-1">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
                   {ocrDebug.error && <div className="text-red-600 mt-1">❌ Fehler: {ocrDebug.error}</div>}
-                  {showDebug && ocrDebug.response && <pre className="mt-2 overflow-auto max-h-60 bg-black text-white p-2 rounded">{JSON.stringify(ocrDebug.response, null, 2)}</pre>}
+                  {showDebug && ocrDebug.response && (
+                    <pre className="mt-2 overflow-auto max-h-60 bg-black text-white p-2 rounded text-[10px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
+                  )}
                   {wordBlocks.length === 0 && !ocrRunning && <div className="text-red-600 mt-1">⚠️ Keine Wörter erkannt.</div>}
                 </div>
               )}
