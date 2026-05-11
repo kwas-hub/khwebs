@@ -63,6 +63,7 @@ const AIPage = () => {
   const [newTypeSplitRegex, setNewTypeSplitRegex] = useState("");
   const [newTypeSplitEnabled, setNewTypeSplitEnabled] = useState(false);
   const [newKeywordByType, setNewKeywordByType] = useState<Record<string, string>>({});
+  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   
   // Global split settings
   const [globalSplitEnabled, setGlobalSplitEnabled] = useState(false);
@@ -77,6 +78,8 @@ const AIPage = () => {
   const pageOrder: PageMeta[] = activeDoc?.page_order || [];
   const activeMeta = pageOrder[activePageOrderIdx];
   const detectedType = useMemo(() => docTypes.find(t => t.id === activeDoc?.detected_type_id) || null, [docTypes, activeDoc?.detected_type_id]);
+  const selectedType = useMemo(() => docTypes.find(t => t.id === selectedTypeId) || null, [docTypes, selectedTypeId]);
+  const selectedKeywords = useMemo(() => keywords.filter(k => k.type_id === selectedTypeId), [keywords, selectedTypeId]);
 
   // Meine ausgecheckten Dokumente
   const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
@@ -768,7 +771,7 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- PROPERTIES (Eigenschaften) MANAGER ---------- */
+  /* ---------- PROPERTIES (Eigenschaften) MANAGER - ZWEISPALTIG ---------- */
   const addType = async () => {
     const name = newTypeName.trim();
     if (!name) return;
@@ -783,17 +786,22 @@ const AIPage = () => {
     setNewTypeSplitRegex("");
     setNewTypeSplitEnabled(false);
     setDocTypes(p => [...p, data as DocType].sort((a, b) => a.name.localeCompare(b.name)));
+    setSelectedTypeId(data.id);
   };
+  
   const renameType = async (id: string, name: string) => {
     setDocTypes(p => p.map(t => t.id === id ? { ...t, name } : t));
     await supabase.from("document_types").update({ name }).eq("id", id);
   };
+  
   const deleteType = async (id: string) => {
     if (!confirm("Eigenschaft inkl. Schlagwörter löschen?")) return;
     await supabase.from("document_types").delete().eq("id", id);
     setDocTypes(p => p.filter(t => t.id !== id));
     setKeywords(p => p.filter(k => k.type_id !== id));
+    if (selectedTypeId === id) setSelectedTypeId(null);
   };
+  
   const addKeyword = async (typeId: string) => {
     const kw = (newKeywordByType[typeId] || "").trim();
     if (!kw) return;
@@ -802,10 +810,12 @@ const AIPage = () => {
     setKeywords(p => [...p, data as Keyword]);
     setNewKeywordByType(p => ({ ...p, [typeId]: "" }));
   };
+  
   const updateKeyword = async (id: string, keyword: string) => {
     setKeywords(p => p.map(k => k.id === id ? { ...k, keyword } : k));
     await supabase.from("document_type_keywords").update({ keyword }).eq("id", id);
   };
+  
   const deleteKeyword = async (id: string) => {
     await supabase.from("document_type_keywords").delete().eq("id", id);
     setKeywords(p => p.filter(k => k.id !== id));
@@ -1068,12 +1078,6 @@ const AIPage = () => {
                       await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
                     }} 
                   />
-                  <div className="flex gap-1">
-                    <Button onClick={runOCRCurrentPage} disabled={ocrRunning || !activeDoc} size="sm" className="h-7 text-xs">
-                      {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                      Seite OCR
-                    </Button>
-                  </div>
                 </div>
                 <Textarea 
                   ref={textareaRef} 
@@ -1126,9 +1130,10 @@ const AIPage = () => {
 
         {/* ===== EIGENSCHAFTEN ===== */}
         {tab === "eigenschaften" && (
-          <div className="space-y-6 mt-4">
+          <div className="space-y-4 mt-4">
+            {/* Neue Dokumenttyp erstellen */}
             <Card className="p-4">
-              <div className="flex gap-2 mb-4">
+              <div className="flex gap-2">
                 <div className="flex-1">
                   <Input 
                     placeholder="Neuer Dokumenttyp (z.B. Rechnung) - Regex möglich" 
@@ -1139,64 +1144,106 @@ const AIPage = () => {
                 </div>
                 <Button onClick={addType}><Plus className="h-4 w-4 mr-1" />Anlegen</Button>
               </div>
-              
-              {docTypes.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-6">Noch keine Eigenschaften angelegt.</p>
-              )}
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {docTypes.map(t => {
-                  const kws = keywords.filter(k => k.type_id === t.id);
-                  return (
-                    <Card key={t.id} className="p-3 border">
-                      <div className="mb-3">
-                        <div className="flex gap-2 items-center mb-2">
-                          <Input 
-                            value={t.name} 
-                            onChange={e => renameType(t.id, e.target.value)} 
-                            className="font-semibold text-sm" 
-                            placeholder="Dokumenttyp (mit Regex)"
-                          />
-                          <Button variant="destructive" size="icon" onClick={() => deleteType(t.id)} className="h-8 w-8">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Regex wird automatisch erkannt</div>
-                      </div>
-                      
-                      <div className="border-t pt-2">
-                        <div className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Schlagwörter (Regex)</div>
-                        <div className="space-y-1 mb-2 max-h-32 overflow-y-auto">
-                          {kws.map(k => (
-                            <div key={k.id} className="flex gap-2 items-center">
-                              <Input 
-                                value={k.keyword} 
-                                onChange={e => updateKeyword(k.id, e.target.value)} 
-                                className="h-7 text-xs font-mono" 
-                                placeholder="Regex oder Text"
-                              />
-                              <Button variant="ghost" size="icon" onClick={() => deleteKeyword(k.id)} className="h-7 w-7">
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex gap-2">
-                          <Input 
-                            placeholder="Schlagwort / Regex hinzufügen" 
-                            value={newKeywordByType[t.id] || ""}
-                            onChange={e => setNewKeywordByType(p => ({ ...p, [t.id]: e.target.value }))}
-                            onKeyDown={e => e.key === "Enter" && addKeyword(t.id)} 
-                            className="h-7 text-xs font-mono"
-                          />
-                          <Button size="sm" onClick={() => addKeyword(t.id)} className="h-7"><Plus className="h-3 w-3" /></Button>
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
             </Card>
+
+            {/* Zweispaltiges Layout: Links Dokumenttypen, Rechts Schlagwörter */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Linke Spalte: Dokumenttypen */}
+              <Card className="p-4">
+                <h3 className="text-sm font-semibold mb-3">Dokumenttypen</h3>
+                {docTypes.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">Noch keine Dokumenttypen angelegt.</p>
+                )}
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                  {docTypes.map(t => (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTypeId(t.id)}
+                      className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all ${
+                        selectedTypeId === t.id 
+                          ? 'bg-primary/10 border border-primary' 
+                          : 'bg-muted/30 hover:bg-muted/50 border border-transparent'
+                      }`}
+                    >
+                      <span className="font-medium">{t.name}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); renameType(t.id, prompt("Neuer Name:", t.name) || t.name); }}
+                          className="p-1 rounded hover:bg-muted"
+                          title="Umbenennen"
+                        >
+                          <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteType(t.id); }}
+                          className="p-1 rounded hover:bg-destructive/10"
+                          title="Löschen"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Rechte Spalte: Schlagwörter des ausgewählten Dokumenttyps */}
+              <Card className="p-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-semibold">
+                    {selectedType ? `Schlagwörter für "${selectedType.name}"` : "Schlagwörter"}
+                  </h3>
+                  {selectedType && (
+                    <div className="text-[10px] text-muted-foreground">Regex wird automatisch erkannt</div>
+                  )}
+                </div>
+                
+                {!selectedType ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    Wählen Sie links einen Dokumenttyp aus.
+                  </p>
+                ) : (
+                  <>
+                    <div className="space-y-2 mb-3 max-h-[300px] overflow-y-auto">
+                      {selectedKeywords.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">Keine Schlagwörter vorhanden.</p>
+                      ) : (
+                        selectedKeywords.map(k => (
+                          <div key={k.id} className="flex items-center gap-2 p-2 bg-muted/20 rounded-lg">
+                            <Input
+                              value={k.keyword}
+                              onChange={e => updateKeyword(k.id, e.target.value)}
+                              className="flex-1 h-8 text-sm font-mono"
+                              placeholder="Regex oder Text"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteKeyword(k.id)}
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Schlagwort / Regex hinzufügen"
+                        value={newKeywordByType[selectedType.id] || ""}
+                        onChange={e => setNewKeywordByType(p => ({ ...p, [selectedType.id]: e.target.value }))}
+                        onKeyDown={e => e.key === "Enter" && addKeyword(selectedType.id)}
+                        className="flex-1 h-8 text-sm font-mono"
+                      />
+                      <Button size="sm" onClick={() => addKeyword(selectedType.id)} className="h-8">
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Hinzufügen
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </Card>
+            </div>
 
             {/* Bereich 2: Dokumententrennung */}
             <Card className="p-4">
