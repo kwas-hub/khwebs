@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, CloudUpload } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -860,9 +860,42 @@ const AIPage = () => {
             </div>
 
             {!activeDoc ? (
-              <Card className="p-12 text-center text-muted-foreground">
-                <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>Lade ein PDF hoch oder wähle eines aus der Historie aus.</p>
+              // NEU: Upload-Ansicht als Standard, wenn kein Dokument ausgewählt
+              <Card className="border-2 border-dashed border-border bg-muted/20">
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                    <CloudUpload className="h-10 w-10 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Kein Dokument ausgewählt</h3>
+                  <p className="text-sm text-muted-foreground mb-6 max-w-md">
+                    Wählen Sie ein Dokument aus der Liste aus oder laden Sie ein neues PDF hoch, um zu beginnen.
+                  </p>
+                  <div className="flex gap-3 flex-wrap justify-center">
+                    <Button 
+                      onClick={() => fileInputRef.current?.click()} 
+                      disabled={uploading}
+                      className="gap-2"
+                    >
+                      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                      PDF hochladen
+                    </Button>
+                    {docs.length > 0 && (
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setIsDropdownOpen(true)}
+                        className="gap-2"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Dokument auswählen
+                      </Button>
+                    )}
+                  </div>
+                  {docs.length === 0 && !uploading && (
+                    <p className="text-xs text-muted-foreground mt-6">
+                      Unterstützte Formate: PDF
+                    </p>
+                  )}
+                </div>
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
