@@ -16,9 +16,13 @@ import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Do
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
-// @ts-ignore
-import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+
+// PDF.js Worker Konfiguration
+const pdfWorkerUrl = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url
+);
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl.toString();
 
 type Doc = {
   id: string; name: string; storage_path: string; page_order: PageMeta[]; notes: string;
@@ -74,6 +78,7 @@ const AIPage = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const pdfDocRef = useRef<any>(null);
 
   const activeDoc = docs.find(d => d.id === activeDocId) || null;
   const pageOrder: PageMeta[] = activeDoc?.page_order || [];
@@ -86,6 +91,11 @@ const AIPage = () => {
   const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
   // Andere Dokumente (nicht vom aktuellen User ausgecheckt)
   const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
+
+  // PDF Doc ref aktualisieren
+  useEffect(() => {
+    pdfDocRef.current = pdfDoc;
+  }, [pdfDoc]);
 
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
@@ -110,24 +120,30 @@ const AIPage = () => {
       const newThumbs: Record<string, Record<number, string>> = {};
       
       for (const doc of myCheckedOutDocs) {
-        const { data, error } = await supabase.storage.from("pdfs").download(doc.storage_path);
-        if (error) continue;
-        const buf = await data.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-        const out: Record<number, string> = {};
-        const order: PageMeta[] = doc.page_order;
-        for (let i = 0; i < order.length; i++) {
-          const pm = order[i];
-          try {
-            const page = await pdf.getPage(pm.idx + 1); // +1 weil PDF.js 1-basiert ist
-            const vp = page.getViewport({ scale: PAGE_THUMB_SCALE, rotation: pm.rotation });
-            const c = document.createElement("canvas");
-            c.width = vp.width; c.height = vp.height;
-            await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
-            out[pm.idx] = c.toDataURL("image/jpeg", 0.5);
-          } catch (e) { /* ignore */ }
+        try {
+          const { data, error } = await supabase.storage.from("pdfs").download(doc.storage_path);
+          if (error) continue;
+          const buf = await data.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+          const out: Record<number, string> = {};
+          const order: PageMeta[] = doc.page_order;
+          for (let i = 0; i < order.length; i++) {
+            const pm = order[i];
+            try {
+              const page = await pdf.getPage(pm.idx + 1);
+              const vp = page.getViewport({ scale: PAGE_THUMB_SCALE, rotation: pm.rotation });
+              const canvas = document.createElement("canvas");
+              canvas.width = vp.width;
+              canvas.height = vp.height;
+              await page.render({ canvasContext: canvas.getContext("2d")!, viewport: vp }).promise;
+              out[pm.idx] = canvas.toDataURL("image/jpeg", 0.5);
+              canvas.remove();
+            } catch (e) { /* ignore */ }
+          }
+          newThumbs[doc.id] = out;
+        } catch (err) {
+          console.warn(`Fehler beim Laden von Thumbnails für ${doc.name}:`, err);
         }
-        newThumbs[doc.id] = out;
       }
       setAllPagesThumbs(newThumbs);
     };
@@ -330,15 +346,20 @@ const AIPage = () => {
       const { data, error } = await supabase.storage.from("pdfs").download(activeDoc.storage_path);
       if (error) { toast.error("Download fehlgeschlagen"); return; }
       const buf = await data.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-      setPdfDoc(pdf);
+      try {
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        setPdfDoc(pdf);
+      } catch (err) {
+        console.error("PDF Laden fehlgeschlagen:", err);
+        toast.error("PDF konnte nicht geladen werden");
+      }
     };
     run();
   }, [activeDoc?.id]);
 
   /* ---------- THUMBNAILS für aktives Dokument (Detailansicht rechts) ---------- */
   useEffect(() => {
-    if (!pdfDoc || pageOrder.length === 0) return;
+    if (!pdfDoc || pageOrder.length === 0 || !canvasRef.current) return;
     let cancelled = false;
     const run = async () => {
       const out: Record<number, string> = {};
@@ -348,17 +369,19 @@ const AIPage = () => {
         try {
           const page = await pdfDoc.getPage(pm.idx + 1);
           const vp = page.getViewport({ scale: 0.25, rotation: pm.rotation });
-          const c = document.createElement("canvas");
-          c.width = vp.width; c.height = vp.height;
-          await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
-          out[pm.idx] = c.toDataURL("image/jpeg", 0.5);
+          const canvas = document.createElement("canvas");
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          await page.render({ canvasContext: canvas.getContext("2d")!, viewport: vp }).promise;
+          out[pm.idx] = canvas.toDataURL("image/jpeg", 0.5);
+          canvas.remove();
         } catch (e) { /* ignore */ }
       }
       if (!cancelled) setThumbs(out);
     };
     run();
     return () => { cancelled = true; };
-  }, [pdfDoc, pageOrder.length]);
+  }, [pdfDoc, pageOrder]);
 
   /* ---------- SEITEN AKTIONEN ---------- */
   const rotateCurrentPage = () => {
@@ -398,11 +421,10 @@ const AIPage = () => {
     setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, page_order: newOrder } : d));
     if (focusIdx !== undefined) setActivePageOrderIdx(Math.max(0, Math.min(focusIdx, newOrder.length - 1)));
     await supabase.from("pdf_documents").update({ page_order: newOrder as any }).eq("id", activeDoc.id);
-    // Thumbnails neu laden
     setThumbs({});
   };
 
-  /* ---------- WORD BLOCKS AUS SERVER OCR (direkt, ohne native Extraktion) ---------- */
+  /* ---------- WORD BLOCKS AUS SERVER OCR ---------- */
   const convertServerOCRToWordBlocks = (ocrResult: any, canvasWidth: number, canvasHeight: number): WordBlock[] => {
     const arr = (ocrResult?.words ?? ocrResult?.blocks) as any[] | undefined;
     if (!arr || !Array.isArray(arr)) return [];
@@ -413,7 +435,6 @@ const AIPage = () => {
       const bbox = b?.bbox;
       if (!text || !bbox) continue;
       
-      // Server-OCR liefert bereits einzelne Wörter mit bbox
       out.push({
         text: text,
         x: bbox.x,
@@ -434,14 +455,27 @@ const AIPage = () => {
       if (error) throw error;
       
       const words = convertServerOCRToWordBlocks(data, canvasElement.width, canvasElement.height);
-      if (words && words.length > 0) {
-        // In DB speichern - mit delete+insert umgeht Unique-Constraint Probleme
-        await supabase.from("pdf_pages").delete().eq("document_id", activeDoc!.id).eq("page_index", pageIndex);
-        await supabase.from("pdf_pages").insert({
-          document_id: activeDoc!.id, page_index: pageIndex,
-          ocr_text: words.map(w => w.text).join(" "), 
-          ocr_blocks: words as any,
-        });
+      if (words && words.length > 0 && activeDoc) {
+        // In DB speichern
+        const { error: deleteError } = await supabase
+          .from("pdf_pages")
+          .delete()
+          .eq("document_id", activeDoc.id)
+          .eq("page_index", pageIndex);
+        
+        if (deleteError) console.warn("Delete error:", deleteError);
+        
+        const { error: insertError } = await supabase
+          .from("pdf_pages")
+          .insert({
+            document_id: activeDoc.id, 
+            page_index: pageIndex,
+            ocr_text: words.map(w => w.text).join(" "), 
+            ocr_blocks: words as any,
+          });
+        
+        if (insertError) console.warn("Insert error:", insertError);
+        
         return words;
       }
       return [];
@@ -505,7 +539,6 @@ const AIPage = () => {
     const newCache: Record<number, WordBlock[]> = {};
     const pageTexts: string[] = [];
     
-    // Simulierter Fortschritt
     let simulatedProgress = 0;
     const progressInterval = setInterval(() => {
       if (simulatedProgress < 90) {
@@ -514,29 +547,50 @@ const AIPage = () => {
       }
     }, 500);
     
+    // Temporär activeDoc setzen
+    const originalActiveDoc = activeDoc;
+    // @ts-ignore - Workaround
+    window.__tempActiveDoc = document;
+    
     for (let i = 0; i < order.length; i++) {
       const pm = order[i];
       const pageIdx = pm.idx;
       setOcrStatusText(`OCR Seite ${i + 1} von ${order.length} (${document.name})...`);
       
-      const page = await pdfDocument.getPage(pageIdx + 1);
-      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = viewport.width;
-      tempCanvas.height = viewport.height;
-      await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
-      
-      // Temporär activeDoc für performOCRForPage setzen
-      const originalActiveDoc = activeDoc;
-      // @ts-ignore - workaround
-      activeDocRef.current = document;
-      const words = await performOCRForPageForDoc(pageIdx, tempCanvas, document);
-      // @ts-ignore
-      activeDocRef.current = originalActiveDoc;
-      
-      newCache[pageIdx] = words || [];
-      pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
-      if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
+      try {
+        const page = await pdfDocument.getPage(pageIdx + 1);
+        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = viewport.width;
+        tempCanvas.height = viewport.height;
+        await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+        
+        const imageDataUrl = tempCanvas.toDataURL("image/jpeg", 0.85);
+        const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
+        tempCanvas.remove();
+        
+        if (error) throw error;
+        
+        const words = convertServerOCRToWordBlocks(data, viewport.width, viewport.height);
+        if (words && words.length > 0) {
+          newCache[pageIdx] = words;
+          pageTexts[i] = words.map(w => w.text).join(" ");
+          
+          await supabase.from("pdf_pages").delete().eq("document_id", document.id).eq("page_index", pageIdx);
+          await supabase.from("pdf_pages").insert({
+            document_id: document.id, page_index: pageIdx,
+            ocr_text: words.map(w => w.text).join(" "), 
+            ocr_blocks: words as any,
+          });
+        } else {
+          newCache[pageIdx] = [];
+          pageTexts[i] = "";
+        }
+      } catch (err) {
+        console.error(`Fehler bei Seite ${pageIdx + 1}:`, err);
+        newCache[pageIdx] = [];
+        pageTexts[i] = "";
+      }
     }
     
     clearInterval(progressInterval);
@@ -559,52 +613,18 @@ const AIPage = () => {
       .eq("id", document.id);
     
     const detectedTypeObj = docTypes.find(t => t.id === det.typeId) || null;
-    await updateDetectedInfoInNotesForDoc(document, detectedTypeObj, det.matched);
+    
+    // Update notes if this is the active document
+    if (document.id === activeDocId) {
+      const header = `=== Dokumenttyp: ${detectedTypeObj?.name || "Kein Typ erkannt"} ===\n`;
+      const keywordsLine = `Erkannte Schlagwörter: ${det.matched.join(", ") || "Keine"}\n`;
+      const separator = "=".repeat(40) + "\n\n";
+      setNotes(header + keywordsLine + separator + (document.notes || ""));
+      await supabase.from("pdf_documents").update({ notes: header + keywordsLine + separator + (document.notes || "") }).eq("id", document.id);
+    }
     
     toast.success(`OCR für ${document.name} abgeschlossen - ${det.matched.length} Schlagwörter erkannt`);
   };
-  
-  // Hilfsfunktion für OCR ohne activeDoc
-  const performOCRForPageForDoc = async (pageIndex: number, canvasElement: HTMLCanvasElement, document: Doc): Promise<WordBlock[] | null> => {
-    try {
-      const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
-      const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
-      if (error) throw error;
-      
-      const words = convertServerOCRToWordBlocks(data, canvasElement.width, canvasElement.height);
-      if (words && words.length > 0) {
-        await supabase.from("pdf_pages").delete().eq("document_id", document.id).eq("page_index", pageIndex);
-        await supabase.from("pdf_pages").insert({
-          document_id: document.id, page_index: pageIndex,
-          ocr_text: words.map(w => w.text).join(" "), 
-          ocr_blocks: words as any,
-        });
-        return words;
-      }
-      return [];
-    } catch (err) {
-      console.error(`OCR Fehler Seite ${pageIndex + 1}:`, err);
-      return null;
-    }
-  };
-  
-  const updateDetectedInfoInNotesForDoc = async (document: Doc, type: DocType | null, matchedKw: string[]) => {
-    const header = `=== Dokumenttyp: ${type?.name || "Kein Typ erkannt"} ===\n`;
-    const keywordsLine = `Erkannte Schlagwörter: ${matchedKw.join(", ") || "Keine"}\n`;
-    const separator = "=".repeat(40) + "\n\n";
-    
-    const newContent = header + keywordsLine + separator + (document.notes || "");
-    if (document.id === activeDocId) {
-      setNotes(newContent);
-    }
-    await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", document.id);
-  };
-  
-  // Ref für Workaround
-  const activeDocRef = useRef<any>(null);
-  useEffect(() => {
-    activeDocRef.current = activeDoc;
-  }, [activeDoc]);
 
   /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
   const runOCRForAllPages = async () => {
@@ -632,18 +652,26 @@ const AIPage = () => {
       const pageIdx = pm.idx;
       setOcrStatusText(`OCR Seite ${i + 1} von ${pageOrder.length}...`);
       
-      const page = await pdfDoc.getPage(pageIdx + 1);
-      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = viewport.width;
-      tempCanvas.height = viewport.height;
-      await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
-      
-      const words = await performOCRForPage(pageIdx, tempCanvas);
-      newCache[pageIdx] = words || [];
-      pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
-      if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
-      setOcrProgress({ current: i + 1, total: pageOrder.length });
+      try {
+        const page = await pdfDoc.getPage(pageIdx + 1);
+        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = viewport.width;
+        tempCanvas.height = viewport.height;
+        await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+        
+        const words = await performOCRForPage(pageIdx, tempCanvas);
+        tempCanvas.remove();
+        
+        newCache[pageIdx] = words || [];
+        pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
+        if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
+        setOcrProgress({ current: i + 1, total: pageOrder.length });
+      } catch (err) {
+        console.error(`Fehler bei Seite ${pageIdx + 1}:`, err);
+        newCache[pageIdx] = [];
+        pageTexts[i] = "";
+      }
     }
     
     clearInterval(progressInterval);
@@ -673,40 +701,46 @@ const AIPage = () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
       setWordBlocks([]);
       setPageOcrText("");
-      const page = await pdfDoc.getPage(activeMeta.idx + 1);
-      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d")!;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      setRenderedSize({ w: viewport.width, h: viewport.height });
-      await page.render({ canvasContext: ctx, viewport }).promise;
+      
+      try {
+        const page = await pdfDoc.getPage(activeMeta.idx + 1);
+        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d")!;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        setRenderedSize({ w: viewport.width, h: viewport.height });
+        await page.render({ canvasContext: ctx, viewport }).promise;
 
-      if (ocrCache[activeMeta.idx] && ocrCache[activeMeta.idx].length > 0) {
-        const cached = ocrCache[activeMeta.idx];
-        setWordBlocks(cached);
-        setPageOcrText(cached.map(w => w.text).join(" "));
-        setOcrDebug({ response: null, error: null, source: "cache" });
-        return;
-      }
-      
-      const { data: existing } = await supabase
-        .from("pdf_pages")
-        .select("ocr_blocks, ocr_text")
-        .eq("document_id", activeDoc!.id)
-        .eq("page_index", activeMeta.idx)
-        .maybeSingle();
+        if (ocrCache[activeMeta.idx] && ocrCache[activeMeta.idx].length > 0) {
+          const cached = ocrCache[activeMeta.idx];
+          setWordBlocks(cached);
+          setPageOcrText(cached.map(w => w.text).join(" "));
+          setOcrDebug({ response: null, error: null, source: "cache" });
+          return;
+        }
         
-      if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-        const blocks = existing.ocr_blocks as WordBlock[];
-        setWordBlocks(blocks);
-        setPageOcrText(existing.ocr_text || blocks.map(w => w.text).join(" "));
-        setOcrCache(prev => ({ ...prev, [activeMeta.idx]: blocks }));
-        setOcrDebug({ response: null, error: null, source: "database" });
-        return;
+        const { data: existing } = await supabase
+          .from("pdf_pages")
+          .select("ocr_blocks, ocr_text")
+          .eq("document_id", activeDoc!.id)
+          .eq("page_index", activeMeta.idx)
+          .maybeSingle();
+          
+        if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
+          const blocks = existing.ocr_blocks as WordBlock[];
+          setWordBlocks(blocks);
+          setPageOcrText(existing.ocr_text || blocks.map(w => w.text).join(" "));
+          setOcrCache(prev => ({ ...prev, [activeMeta.idx]: blocks }));
+          setOcrDebug({ response: null, error: null, source: "database" });
+          return;
+        }
+        
+        setOcrDebug({ response: null, error: null, source: "none" });
+      } catch (err) {
+        console.error("Fehler beim Rendern der Seite:", err);
+        setOcrDebug({ response: null, error: err.message, source: "error" });
       }
-      
-      setOcrDebug({ response: null, error: null, source: "none" });
     };
     run();
   }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache]);
@@ -793,7 +827,7 @@ const AIPage = () => {
       await loadDocs();
       setActiveDocId(data.id);
       
-      // Automatische OCR nach Upload starten
+      // Automatische OCR nach Upload starten (verzögert)
       setTimeout(async () => {
         const newDoc = data as Doc;
         const { data: storageData, error: storageError } = await supabase.storage.from("pdfs").download(path);
@@ -805,7 +839,6 @@ const AIPage = () => {
         const pdfDocForOCR = await pdfjsLib.getDocument({ data: newBuf }).promise;
         await runOCRForDocument(newDoc, pdfDocForOCR);
         
-        // Thumbnails neu laden
         const { data: updatedDocs } = await supabase.from("pdf_documents").select("*").eq("id", data.id);
         if (updatedDocs && updatedDocs.length > 0) {
           setDocs(prev => prev.map(d => d.id === data.id ? { ...d, ...updatedDocs[0] } : d));
@@ -869,6 +902,7 @@ const AIPage = () => {
         if (!first) pdf.addPage();
         first = false;
         pdf.addImage(img, "JPEG", (pageW - w) / 2, (pageH - h) / 2, w, h);
+        c.remove();
       }
       pdf.save(`${activeDoc.name.replace(/\.pdf$/i, "")}-bearbeitet.pdf`);
       toast.success("Export fertig", { id: "exp" });
