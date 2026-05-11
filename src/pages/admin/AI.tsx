@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag, X, FolderOpen } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag, X, FolderOpen, Settings } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -24,7 +26,7 @@ type Doc = {
 };
 type PageMeta = { idx: number; rotation: number };
 type WordBlock = { text: string; x: number; y: number; w: number; h: number };
-type DocType = { id: string; name: string };
+type DocType = { id: string; name: string; split_regex?: string; split_enabled?: boolean };
 type Keyword = { id: string; type_id: string; keyword: string };
 
 const RENDER_SCALE = 1.4;
@@ -48,11 +50,17 @@ const AIPage = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
 
-  // Document types
+  // Document types / Properties
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [newTypeName, setNewTypeName] = useState("");
+  const [newTypeSplitRegex, setNewTypeSplitRegex] = useState("");
+  const [newTypeSplitEnabled, setNewTypeSplitEnabled] = useState(false);
   const [newKeywordByType, setNewKeywordByType] = useState<Record<string, string>>({});
+  
+  // Global split settings
+  const [globalSplitEnabled, setGlobalSplitEnabled] = useState(false);
+  const [globalSplitRegex, setGlobalSplitRegex] = useState("");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -84,6 +92,15 @@ const AIPage = () => {
   }, []);
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
+  // Speichere Split-Einstellungen für einen Typ
+  const saveTypeSplitSettings = async (typeId: string, splitEnabled: boolean, splitRegex: string) => {
+    setDocTypes(p => p.map(t => t.id === typeId ? { ...t, split_enabled: splitEnabled, split_regex: splitRegex } : t));
+    await supabase.from("document_types").update({ 
+      split_enabled: splitEnabled, 
+      split_regex: splitRegex 
+    }).eq("id", typeId);
+  };
+
   // Funktion zum Aktualisieren des erkannten Dokuments im Textarea
   const updateDetectedInfoInNotes = async (type: DocType | null, matchedKw: string[]) => {
     if (!activeDoc) return;
@@ -93,6 +110,42 @@ const AIPage = () => {
     const newContent = keywordsLine + separator + (activeDoc.notes || "");
     setNotes(newContent);
     await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id);
+  };
+
+  // Prüfe ob ein Text die Trennkriterien erfüllt
+  const shouldSplitDocument = (text: string, detectedTypeId: string | null): boolean => {
+    // Prüfe globale Trennung
+    if (globalSplitEnabled && globalSplitRegex) {
+      try {
+        const regex = new RegExp(globalSplitRegex, 'i');
+        if (regex.test(text)) return true;
+      } catch (e) { console.warn("Invalid global regex", e); }
+    }
+    
+    // Prüfe typspezifische Trennung
+    if (detectedTypeId) {
+      const type = docTypes.find(t => t.id === detectedTypeId);
+      if (type?.split_enabled && type?.split_regex) {
+        try {
+          const regex = new RegExp(type.split_regex, 'i');
+          if (regex.test(text)) return true;
+        } catch (e) { console.warn("Invalid type regex", e); }
+      }
+    }
+    
+    return false;
+  };
+
+  // Trenne ein Dokument basierend auf OCR-Text
+  const splitDocument = async (originalDoc: Doc, text: string, splitPointMatch: RegExpMatchArray | null) => {
+    if (!splitPointMatch) return null;
+    
+    // Hier wird die Logik zum Trennen des Dokuments implementiert
+    // Dies würde das Original-PDF an der Stelle des Matches teilen
+    // und zwei neue Dokumente erstellen
+    console.log("Splitting document at:", splitPointMatch);
+    toast.info("Dokumententrennung wäre hier implementiert");
+    return null;
   };
 
   /* ---------- CHECKOUT / RELEASE ---------- */
@@ -142,7 +195,7 @@ const AIPage = () => {
     run();
   }, [activeDoc?.id]);
 
-  /* ---------- THUMBNAILS (kleiner) ---------- */
+  /* ---------- THUMBNAILS ---------- */
   useEffect(() => {
     if (!pdfDoc || pageOrder.length === 0) return;
     let cancelled = false;
@@ -277,15 +330,31 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- KEYWORD DETECTION ---------- */
+  /* ---------- KEYWORD DETECTION (mit Regex-Unterstützung) ---------- */
   const detectTypeFromText = (fullText: string): { typeId: string | null; matched: string[] } => {
     if (!fullText) return { typeId: null, matched: [] };
-    const lower = fullText.toLowerCase();
     let bestType: string | null = null;
     let bestMatches: string[] = [];
+    
     for (const t of docTypes) {
       const kws = keywords.filter(k => k.type_id === t.id).map(k => k.keyword);
-      const found = kws.filter(k => k && lower.includes(k.toLowerCase()));
+      const found: string[] = [];
+      
+      for (const kw of kws) {
+        try {
+          // Versuche als Regex zu interpretieren
+          const regex = new RegExp(kw, 'i');
+          if (regex.test(fullText)) {
+            found.push(kw);
+          }
+        } catch {
+          // Fallback: einfache Textsuche
+          if (fullText.toLowerCase().includes(kw.toLowerCase())) {
+            found.push(kw);
+          }
+        }
+      }
+      
       if (found.length > bestMatches.length) {
         bestMatches = found;
         bestType = t.id;
@@ -293,6 +362,7 @@ const AIPage = () => {
     }
     return { typeId: bestType, matched: bestMatches };
   };
+  
   const persistDetection = async (typeId: string | null, matched: string[]) => {
     if (!activeDoc) return;
     setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, detected_type_id: typeId, matched_keywords: matched } : d));
@@ -302,6 +372,12 @@ const AIPage = () => {
     
     const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
+    
+    // Prüfe auf Dokumententrennung
+    const allText = Object.values(ocrCache).flat().map(w => w.text).join(" ");
+    if (shouldSplitDocument(allText, typeId)) {
+      await splitDocument(activeDoc, allText, null);
+    }
   };
 
   /* ---------- OCR FÜR ALLE SEITEN ---------- */
@@ -509,13 +585,20 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- DOC TYPES MANAGER ---------- */
+  /* ---------- PROPERTIES (Eigenschaften) MANAGER ---------- */
   const addType = async () => {
     const name = newTypeName.trim();
     if (!name) return;
-    const { data, error } = await supabase.from("document_types").insert({ name, created_by: userId }).select().single();
+    const { data, error } = await supabase.from("document_types").insert({ 
+      name, 
+      created_by: userId,
+      split_enabled: newTypeSplitEnabled,
+      split_regex: newTypeSplitRegex || null
+    }).select().single();
     if (error) { toast.error(error.message); return; }
     setNewTypeName("");
+    setNewTypeSplitRegex("");
+    setNewTypeSplitEnabled(false);
     setDocTypes(p => [...p, data as DocType].sort((a, b) => a.name.localeCompare(b.name)));
   };
   const renameType = async (id: string, name: string) => {
@@ -523,7 +606,7 @@ const AIPage = () => {
     await supabase.from("document_types").update({ name }).eq("id", id);
   };
   const deleteType = async (id: string) => {
-    if (!confirm("Dokumenttyp inkl. Schlagwörter löschen?")) return;
+    if (!confirm("Eigenschaft inkl. Schlagwörter löschen?")) return;
     await supabase.from("document_types").delete().eq("id", id);
     setDocTypes(p => p.filter(t => t.id !== id));
     setKeywords(p => p.filter(k => k.type_id !== id));
@@ -564,11 +647,10 @@ const AIPage = () => {
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
               <TabsTrigger value="dokumente"><FileText className="h-4 w-4 mr-1" />Dokumente</TabsTrigger>
-              <TabsTrigger value="typen"><Tag className="h-4 w-4 mr-1" />Dokumenttypen</TabsTrigger>
+              <TabsTrigger value="eigenschaften"><Settings className="h-4 w-4 mr-1" />Eigenschaften</TabsTrigger>
             </TabsList>
           </Tabs>
 
-          {/* PDF hochladen Button - oben rechts neben Tabs */}
           <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
           <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} size="sm" className="h-9">
             {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
@@ -580,7 +662,6 @@ const AIPage = () => {
         {tab === "dokumente" && (
           <div className="space-y-4 mt-4">
             <div className="flex flex-wrap items-center gap-2">
-              {/* Custom Dropdown mit immer sichtbarem Zurücklegen-Button */}
               <div className="relative w-64 sm:w-80">
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -596,38 +677,23 @@ const AIPage = () => {
                     {docs.length === 0 && (
                       <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>
                     )}
-                    {/* Meine ausgecheckten Dokumente zuerst */}
                     {myCheckedOutDocs.length > 0 && (
                       <>
                         <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-b">
                           Meine aktiven Dokumente
                         </div>
                         {myCheckedOutDocs.map(d => (
-                          <div
-                            key={d.id}
-                            className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer"
-                          >
-                            <span
-                              className="flex-1 text-sm truncate"
-                              onClick={() => {
-                                selectDoc(d.id);
-                                setIsDropdownOpen(false);
-                              }}
-                            >
+                          <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
+                            <span className="flex-1 text-sm truncate" onClick={() => { selectDoc(d.id); setIsDropdownOpen(false); }}>
                               {d.name}
                             </span>
-                            <button
-                              onClick={(e) => releaseDoc(d.id, e)}
-                              className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                              title="Dokument zurücklegen"
-                            >
+                            <button onClick={(e) => releaseDoc(d.id, e)} className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Dokument zurücklegen">
                               <Undo2 className="h-4 w-4" />
                             </button>
                           </div>
                         ))}
                       </>
                     )}
-                    {/* Andere Dokumente */}
                     {otherDocs.length > 0 && (
                       <>
                         {myCheckedOutDocs.length > 0 && (
@@ -636,17 +702,8 @@ const AIPage = () => {
                           </div>
                         )}
                         {otherDocs.map(d => (
-                          <div
-                            key={d.id}
-                            className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer"
-                          >
-                            <span
-                              className="flex-1 text-sm truncate"
-                              onClick={() => {
-                                selectDoc(d.id);
-                                setIsDropdownOpen(false);
-                              }}
-                            >
+                          <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
+                            <span className="flex-1 text-sm truncate" onClick={() => { selectDoc(d.id); setIsDropdownOpen(false); }}>
                               {d.name}
                             </span>
                           </div>
@@ -679,7 +736,7 @@ const AIPage = () => {
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[260px_1fr_1fr] gap-4">
-                {/* Seitenleiste - kleinere Thumbnails */}
+                {/* Seitenleiste */}
                 <Card className="p-3 space-y-2">
                   <div className="flex justify-between items-center px-1 mb-2">
                     <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
@@ -693,7 +750,6 @@ const AIPage = () => {
                       OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
                     </div>
                   )}
-                  {/* Mobile horizontale Scrollleiste */}
                   <div className="lg:hidden overflow-x-auto pb-2 -mx-1 px-1">
                     <div className="flex flex-row gap-2 snap-x snap-mandatory">
                       {pageOrder.map((pm, i) => (
@@ -712,7 +768,6 @@ const AIPage = () => {
                       ))}
                     </div>
                   </div>
-                  {/* Desktop vertikales Grid - kleinere Thumbnails */}
                   <div className="hidden lg:grid grid-cols-1 gap-2 max-h-[calc(100vh-280px)] overflow-y-auto">
                     {pageOrder.map((pm, i) => (
                       <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
@@ -731,7 +786,7 @@ const AIPage = () => {
                   </div>
                 </Card>
 
-                {/* MITTLERE SPALTE: Editor mit Dokumenttyp-Anzeige ÜBER dem Textarea */}
+                {/* MITTLERE SPALTE */}
                 <Card className="p-4 flex flex-col">
                   <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
                     <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp</div>
@@ -758,7 +813,7 @@ const AIPage = () => {
                   <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
                 </Card>
 
-                {/* Vorschau mit Wort-Overlays */}
+                {/* Vorschau */}
                 <Card className="p-3 overflow-auto bg-muted/30 relative">
                   <div className="relative inline-block max-w-full">
                     <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
@@ -789,46 +844,138 @@ const AIPage = () => {
           </div>
         )}
 
-        {/* ===== TYPEN ===== */}
-        {tab === "typen" && (
-          <div className="space-y-4 mt-4">
+        {/* ===== EIGENSCHAFTEN ===== */}
+        {tab === "eigenschaften" && (
+          <div className="space-y-6 mt-4">
+            {/* Bereich 1: Dokumenttypen und Schlagwörter (2-spaltig) */}
             <Card className="p-4">
               <div className="flex gap-2 mb-4">
-                <Input placeholder="Neuer Dokumenttyp (z.B. Rechnung)" value={newTypeName}
-                  onChange={e => setNewTypeName(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && addType()} />
+                <div className="flex-1">
+                  <Input 
+                    placeholder="Neuer Dokumenttyp (z.B. Rechnung) - Regex möglich" 
+                    value={newTypeName}
+                    onChange={e => setNewTypeName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addType()} 
+                  />
+                </div>
                 <Button onClick={addType}><Plus className="h-4 w-4 mr-1" />Anlegen</Button>
               </div>
+              
               {docTypes.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-6">Noch keine Dokumenttypen angelegt.</p>
+                <p className="text-sm text-muted-foreground text-center py-6">Noch keine Eigenschaften angelegt.</p>
               )}
-              <div className="space-y-3">
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {docTypes.map(t => {
                   const kws = keywords.filter(k => k.type_id === t.id);
                   return (
-                    <Card key={t.id} className="p-3 space-y-2">
-                      <div className="flex gap-2 items-center">
-                        <Input value={t.name} onChange={e => renameType(t.id, e.target.value)} className="font-semibold" />
-                        <Button variant="destructive" size="icon" onClick={() => deleteType(t.id)}><Trash2 className="h-4 w-4" /></Button>
+                    <Card key={t.id} className="p-3 border">
+                      {/* Linke Spalte: Dokumenttyp */}
+                      <div className="mb-3">
+                        <div className="flex gap-2 items-center mb-2">
+                          <Input 
+                            value={t.name} 
+                            onChange={e => renameType(t.id, e.target.value)} 
+                            className="font-semibold text-sm" 
+                            placeholder="Dokumenttyp (mit Regex)"
+                          />
+                          <Button variant="destructive" size="icon" onClick={() => deleteType(t.id)} className="h-8 w-8">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Regex wird automatisch erkannt</div>
                       </div>
-                      <div className="text-[10px] font-bold uppercase text-muted-foreground">Schlagwörter</div>
-                      <div className="space-y-1">
-                        {kws.map(k => (
-                          <div key={k.id} className="flex gap-2 items-center">
-                            <Input value={k.keyword} onChange={e => updateKeyword(k.id, e.target.value)} className="h-8" />
-                            <Button variant="ghost" size="icon" onClick={() => deleteKeyword(k.id)} className="h-8 w-8"><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex gap-2">
-                        <Input placeholder="Schlagwort hinzufügen" value={newKeywordByType[t.id] || ""}
-                          onChange={e => setNewKeywordByType(p => ({ ...p, [t.id]: e.target.value }))}
-                          onKeyDown={e => e.key === "Enter" && addKeyword(t.id)} className="h-8" />
-                        <Button size="sm" onClick={() => addKeyword(t.id)}><Plus className="h-4 w-4" /></Button>
+                      
+                      {/* Rechte Spalte: Schlagwörter */}
+                      <div className="border-t pt-2">
+                        <div className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Schlagwörter (Regex)</div>
+                        <div className="space-y-1 mb-2 max-h-32 overflow-y-auto">
+                          {kws.map(k => (
+                            <div key={k.id} className="flex gap-2 items-center">
+                              <Input 
+                                value={k.keyword} 
+                                onChange={e => updateKeyword(k.id, e.target.value)} 
+                                className="h-7 text-xs font-mono" 
+                                placeholder="Regex oder Text"
+                              />
+                              <Button variant="ghost" size="icon" onClick={() => deleteKeyword(k.id)} className="h-7 w-7">
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <Input 
+                            placeholder="Schlagwort / Regex hinzufügen" 
+                            value={newKeywordByType[t.id] || ""}
+                            onChange={e => setNewKeywordByType(p => ({ ...p, [t.id]: e.target.value }))}
+                            onKeyDown={e => e.key === "Enter" && addKeyword(t.id)} 
+                            className="h-7 text-xs font-mono"
+                          />
+                          <Button size="sm" onClick={() => addKeyword(t.id)} className="h-7"><Plus className="h-3 w-3" /></Button>
+                        </div>
                       </div>
                     </Card>
                   );
                 })}
+              </div>
+            </Card>
+
+            {/* Bereich 2: Trennung */}
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <Scissors className="h-4 w-4" /> Dokumententrennung
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="globalSplit" 
+                    checked={globalSplitEnabled}
+                    onCheckedChange={(checked) => setGlobalSplitEnabled(checked as boolean)}
+                  />
+                  <Label htmlFor="globalSplit">Dokumente automatisch trennen (global)</Label>
+                </div>
+                {globalSplitEnabled && (
+                  <div className="ml-6">
+                    <Label htmlFor="globalSplitRegex" className="text-xs">Trenn-Regex (global)</Label>
+                    <Input
+                      id="globalSplitRegex"
+                      placeholder="z.B. ^--- Seite \d+ ---$ oder -----\\s*SEITE\\s*\\d+\\s*-----"
+                      value={globalSplitRegex}
+                      onChange={e => setGlobalSplitRegex(e.target.value)}
+                      className="mt-1 font-mono text-sm"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Der Regex wird im gesamten Dokument gesucht. Bei einem Match wird das Dokument getrennt.
+                    </p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="mt-4 pt-3 border-t">
+                <div className="text-xs font-medium mb-2">Typspezifische Trennung</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {docTypes.map(t => (
+                    <div key={t.id} className="flex items-start gap-2 p-2 bg-muted/30 rounded-lg">
+                      <Checkbox 
+                        id={`split-${t.id}`}
+                        checked={t.split_enabled || false}
+                        onCheckedChange={(checked) => saveTypeSplitSettings(t.id, checked as boolean, t.split_regex || "")}
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor={`split-${t.id}`} className="text-sm font-medium">{t.name}</Label>
+                        {t.split_enabled && (
+                          <Input
+                            placeholder="Trenn-Regex für diesen Typ"
+                            value={t.split_regex || ""}
+                            onChange={e => saveTypeSplitSettings(t.id, true, e.target.value)}
+                            className="mt-1 h-7 font-mono text-xs"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </Card>
           </div>
