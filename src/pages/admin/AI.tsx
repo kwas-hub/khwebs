@@ -119,7 +119,7 @@ const AIPage = () => {
         for (let i = 0; i < order.length; i++) {
           const pm = order[i];
           try {
-            const page = await pdf.getPage(pm.idx + 1);
+            const page = await pdf.getPage(pm.idx + 1); // +1 weil PDF.js 1-basiert ist
             const vp = page.getViewport({ scale: PAGE_THUMB_SCALE, rotation: pm.rotation });
             const c = document.createElement("canvas");
             c.width = vp.width; c.height = vp.height;
@@ -402,143 +402,48 @@ const AIPage = () => {
     setThumbs({});
   };
 
-  /* ---------- NATIVE PDF.JS TEXTEXTRAKTION (EXAKTE WÖRTER) ---------- */
-  const extractExactWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
-    try {
-      const textContent = await page.getTextContent();
-      const items = textContent.items;
-      if (!items || !Array.isArray(items)) return [];
+  /* ---------- WORD BLOCKS AUS SERVER OCR (direkt, ohne native Extraktion) ---------- */
+  const convertServerOCRToWordBlocks = (ocrResult: any, canvasWidth: number, canvasHeight: number): WordBlock[] => {
+    const arr = (ocrResult?.words ?? ocrResult?.blocks) as any[] | undefined;
+    if (!arr || !Array.isArray(arr)) return [];
+    
+    const out: WordBlock[] = [];
+    for (const b of arr) {
+      const text = (b?.text ?? "").toString().trim();
+      const bbox = b?.bbox;
+      if (!text || !bbox) continue;
       
-      const blocks: WordBlock[] = [];
-      
-      for (const item of items) {
-        const str = item?.str;
-        if (!str || !str.trim()) continue;
-        
-        if (!item.transform || item.transform.length < 6) continue;
-        
-        const [, , , , e, f] = item.transform;
-        const w = typeof item.width === "number" ? item.width : 0;
-        const h = typeof item.height === "number" ? item.height : 0;
-        
-        if (w <= 0 || h <= 0) continue;
-        
-        const words = str.split(/\s+/).filter((word: string) => word.length > 0);
-        if (words.length === 0) continue;
-        
-        let accumulatedChars = 0;
-        const totalChars = str.length;
-        
-        for (const word of words) {
-          const wordStart = str.indexOf(word, accumulatedChars);
-          if (wordStart === -1) {
-            accumulatedChars += word.length + 1;
-            continue;
-          }
-          
-          const startRatio = wordStart / totalChars;
-          const endRatio = (wordStart + word.length) / totalChars;
-          
-          const x1 = e + (startRatio * w);
-          const x2 = e + (endRatio * w);
-          
-          const [x1v, y1v] = viewport.convertToViewportPoint(x1, f);
-          const [x2v, y2v] = viewport.convertToViewportPoint(x2, f + h);
-          
-          const left = Math.min(x1v, x2v);
-          const top = Math.min(y1v, y2v);
-          const width = Math.abs(x2v - x1v);
-          const height = Math.abs(y2v - y1v);
-          
-          if (width > 0.5 && height > 0.5) {
-            blocks.push({
-              text: word,
-              x: left / canvasWidth,
-              y: top / canvasHeight,
-              w: width / canvasWidth,
-              h: height / canvasHeight,
-            });
-          }
-          
-          accumulatedChars = wordStart + word.length;
-        }
-      }
-      
-      console.log(`Native Extraktion: ${blocks.length} Wörter mit exakten Positionen`);
-      return blocks;
-    } catch (err) {
-      console.warn("Native Extraktion fehlgeschlagen", err);
-      return [];
+      // Server-OCR liefert bereits einzelne Wörter mit bbox
+      out.push({
+        text: text,
+        x: bbox.x,
+        y: bbox.y,
+        w: bbox.w,
+        h: bbox.h,
+      });
     }
+    console.log(`Server-OCR: ${out.length} Wörter mit Bounding Boxes`);
+    return out;
   };
 
-  /* ---------- SERVER OCR (FALLBACK für gescannte PDFs) ---------- */
-  const runServerOCRForImage = async (imageDataUrl: string): Promise<WordBlock[] | null> => {
-    try {
-      const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
-      if (error) throw error;
-      const arr = (data?.words ?? data?.blocks) as any[] | undefined;
-      if (!arr || !Array.isArray(arr)) return [];
-      const out: WordBlock[] = [];
-      for (const b of arr) {
-        const text = (b?.text ?? "").toString().trim();
-        const bbox = b?.bbox;
-        if (!text || !bbox) continue;
-        const words = text.split(/\s+/).filter(Boolean);
-        if (words.length === 1) {
-          out.push({ text: words[0], x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h });
-        } else {
-          const total = words.join("").length || 1;
-          let acc = 0;
-          for (const w of words) {
-            const sR = acc / total;
-            const eR = (acc + w.length) / total;
-            acc += w.length;
-            out.push({ text: w, x: bbox.x + sR * bbox.w, y: bbox.y, w: (eR - sR) * bbox.w, h: bbox.h });
-          }
-        }
-      }
-      console.log(`Server-OCR Fallback: ${out.length} Wörter`);
-      return out;
-    } catch (err) {
-      console.error("Server-OCR Fehler:", err);
-      return null;
-    }
-  };
-
-  /* ---------- OCR FÜR EINE SEITE (PRIORITÄT: NATIVE PDF.JS) ---------- */
+  /* ---------- OCR FÜR EINE SEITE (NUR SERVER OCR) ---------- */
   const performOCRForPage = async (pageIndex: number, canvasElement: HTMLCanvasElement): Promise<WordBlock[] | null> => {
     try {
-      // 1. Zuerst native PDF.js Extraktion (exakte Positionen)
-      if (pdfDoc) {
-        const page = await pdfDoc.getPage(pageIndex + 1);
-        const pm = pageOrder.find(p => p.idx === pageIndex);
-        const rotation = pm?.rotation || 0;
-        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation });
-        const nativeWords = await extractExactWordBlocks(page, viewport, canvasElement.width, canvasElement.height);
-        
-        if (nativeWords && nativeWords.length > 0) {
-          await supabase.from("pdf_pages").upsert({
-            document_id: activeDoc!.id, page_index: pageIndex,
-            ocr_text: nativeWords.map(w => w.text).join(" "), 
-            ocr_blocks: nativeWords as any,
-          }, { onConflict: "document_id,page_index" });
-          return nativeWords;
-        }
-      }
-      
-      // 2. Fallback: Server-OCR (für gescannte PDFs)
       const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
-      const serverWords = await runServerOCRForImage(imageDataUrl);
-      if (serverWords && serverWords.length > 0) {
-        await supabase.from("pdf_pages").upsert({
-          document_id: activeDoc!.id, page_index: pageIndex,
-          ocr_text: serverWords.map(w => w.text).join(" "), 
-          ocr_blocks: serverWords as any,
-        }, { onConflict: "document_id,page_index" });
-        return serverWords;
-      }
+      const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
+      if (error) throw error;
       
+      const words = convertServerOCRToWordBlocks(data, canvasElement.width, canvasElement.height);
+      if (words && words.length > 0) {
+        // In DB speichern - mit delete+insert umgeht Unique-Constraint Probleme
+        await supabase.from("pdf_pages").delete().eq("document_id", activeDoc!.id).eq("page_index", pageIndex);
+        await supabase.from("pdf_pages").insert({
+          document_id: activeDoc!.id, page_index: pageIndex,
+          ocr_text: words.map(w => w.text).join(" "), 
+          ocr_blocks: words as any,
+        });
+        return words;
+      }
       return [];
     } catch (err) {
       console.error(`OCR Fehler Seite ${pageIndex + 1}:`, err);
@@ -588,7 +493,7 @@ const AIPage = () => {
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
   };
 
-  /* ---------- OCR FÜR EIN DOKUMENT (ALLE SEITEN) ---------- */
+  /* ---------- OCR FÜR DOKUMENT (ALLE SEITEN) ---------- */
   const runOCRForDocument = async (document: Doc, pdfDocument: any) => {
     const order: PageMeta[] = document.page_order;
     if (order.length === 0) return;
@@ -600,6 +505,7 @@ const AIPage = () => {
     const newCache: Record<number, WordBlock[]> = {};
     const pageTexts: string[] = [];
     
+    // Simulierter Fortschritt
     let simulatedProgress = 0;
     const progressInterval = setInterval(() => {
       if (simulatedProgress < 90) {
@@ -620,7 +526,14 @@ const AIPage = () => {
       tempCanvas.height = viewport.height;
       await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
       
-      const words = await performOCRForPageForDoc(pageIdx, tempCanvas, document, pdfDocument);
+      // Temporär activeDoc für performOCRForPage setzen
+      const originalActiveDoc = activeDoc;
+      // @ts-ignore - workaround
+      activeDocRef.current = document;
+      const words = await performOCRForPageForDoc(pageIdx, tempCanvas, document);
+      // @ts-ignore
+      activeDocRef.current = originalActiveDoc;
+      
       newCache[pageIdx] = words || [];
       pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
       if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
@@ -652,36 +565,22 @@ const AIPage = () => {
   };
   
   // Hilfsfunktion für OCR ohne activeDoc
-  const performOCRForPageForDoc = async (pageIndex: number, canvasElement: HTMLCanvasElement, document: Doc, pdfDocument: any): Promise<WordBlock[] | null> => {
+  const performOCRForPageForDoc = async (pageIndex: number, canvasElement: HTMLCanvasElement, document: Doc): Promise<WordBlock[] | null> => {
     try {
-      // Native PDF.js Extraktion
-      const page = await pdfDocument.getPage(pageIndex + 1);
-      const pm = document.page_order.find(p => p.idx === pageIndex);
-      const rotation = pm?.rotation || 0;
-      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation });
-      const nativeWords = await extractExactWordBlocks(page, viewport, canvasElement.width, canvasElement.height);
-      
-      if (nativeWords && nativeWords.length > 0) {
-        await supabase.from("pdf_pages").upsert({
-          document_id: document.id, page_index: pageIndex,
-          ocr_text: nativeWords.map(w => w.text).join(" "), 
-          ocr_blocks: nativeWords as any,
-        }, { onConflict: "document_id,page_index" });
-        return nativeWords;
-      }
-      
-      // Fallback Server-OCR
       const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
-      const serverWords = await runServerOCRForImage(imageDataUrl);
-      if (serverWords && serverWords.length > 0) {
-        await supabase.from("pdf_pages").upsert({
-          document_id: document.id, page_index: pageIndex,
-          ocr_text: serverWords.map(w => w.text).join(" "), 
-          ocr_blocks: serverWords as any,
-        }, { onConflict: "document_id,page_index" });
-        return serverWords;
-      }
+      const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
+      if (error) throw error;
       
+      const words = convertServerOCRToWordBlocks(data, canvasElement.width, canvasElement.height);
+      if (words && words.length > 0) {
+        await supabase.from("pdf_pages").delete().eq("document_id", document.id).eq("page_index", pageIndex);
+        await supabase.from("pdf_pages").insert({
+          document_id: document.id, page_index: pageIndex,
+          ocr_text: words.map(w => w.text).join(" "), 
+          ocr_blocks: words as any,
+        });
+        return words;
+      }
       return [];
     } catch (err) {
       console.error(`OCR Fehler Seite ${pageIndex + 1}:`, err);
@@ -695,9 +594,17 @@ const AIPage = () => {
     const separator = "=".repeat(40) + "\n\n";
     
     const newContent = header + keywordsLine + separator + (document.notes || "");
-    setNotes(newContent);
+    if (document.id === activeDocId) {
+      setNotes(newContent);
+    }
     await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", document.id);
   };
+  
+  // Ref für Workaround
+  const activeDocRef = useRef<any>(null);
+  useEffect(() => {
+    activeDocRef.current = activeDoc;
+  }, [activeDoc]);
 
   /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
   const runOCRForAllPages = async () => {
@@ -725,28 +632,13 @@ const AIPage = () => {
       const pageIdx = pm.idx;
       setOcrStatusText(`OCR Seite ${i + 1} von ${pageOrder.length}...`);
       
-      if (ocrCache[pageIdx]) {
-        newCache[pageIdx] = ocrCache[pageIdx];
-        pageTexts[i] = ocrCache[pageIdx].map(w => w.text).join(" ");
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
-        continue;
-      }
-      const { data: existing } = await supabase
-        .from("pdf_pages").select("ocr_blocks")
-        .eq("document_id", activeDoc.id).eq("page_index", pageIdx).maybeSingle();
-      if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-        const blocks = existing.ocr_blocks as WordBlock[];
-        newCache[pageIdx] = blocks;
-        pageTexts[i] = blocks.map(w => w.text).join(" ");
-        setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
-        continue;
-      }
       const page = await pdfDoc.getPage(pageIdx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
       const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+      tempCanvas.width = viewport.width;
+      tempCanvas.height = viewport.height;
       await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+      
       const words = await performOCRForPage(pageIdx, tempCanvas);
       newCache[pageIdx] = words || [];
       pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
