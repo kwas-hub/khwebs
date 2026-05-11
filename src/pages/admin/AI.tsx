@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag, X, FolderOpen, Settings, Scissors } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -139,7 +139,6 @@ const AIPage = () => {
 
   // Trenne ein Dokument basierend auf OCR-Text
   const splitDocument = async (originalDoc: Doc, text: string) => {
-    // Hier wird die Logik zum Trennen des Dokuments implementiert
     console.log("Splitting document based on:", text.substring(0, 100));
     toast.info("Dokumententrennung wäre hier implementiert");
     return null;
@@ -339,13 +338,11 @@ const AIPage = () => {
       
       for (const kw of kws) {
         try {
-          // Versuche als Regex zu interpretieren
           const regex = new RegExp(kw, 'i');
           if (regex.test(fullText)) {
             found.push(kw);
           }
         } catch {
-          // Fallback: einfache Textsuche
           if (fullText.toLowerCase().includes(kw.toLowerCase())) {
             found.push(kw);
           }
@@ -370,7 +367,6 @@ const AIPage = () => {
     const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
     
-    // Prüfe auf Dokumententrennung
     const allText = Object.values(ocrCache).flat().map(w => w.text).join(" ");
     if (shouldSplitDocument(allText, typeId)) {
       await splitDocument(activeDoc, allText);
@@ -671,9 +667,7 @@ const AIPage = () => {
                 </button>
                 {isDropdownOpen && (
                   <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-80 overflow-auto">
-                    {docs.length === 0 && (
-                      <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>
-                    )}
+                    {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>}
                     {myCheckedOutDocs.length > 0 && (
                       <>
                         <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-b">
@@ -733,7 +727,6 @@ const AIPage = () => {
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[260px_1fr_1fr] gap-4">
-                {/* Seitenleiste */}
                 <Card className="p-3 space-y-2">
                   <div className="flex justify-between items-center px-1 mb-2">
                     <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
@@ -783,7 +776,6 @@ const AIPage = () => {
                   </div>
                 </Card>
 
-                {/* MITTLERE SPALTE */}
                 <Card className="p-4 flex flex-col">
                   <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
                     <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp</div>
@@ -810,7 +802,6 @@ const AIPage = () => {
                   <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
                 </Card>
 
-                {/* Vorschau */}
                 <Card className="p-3 overflow-auto bg-muted/30 relative">
                   <div className="relative inline-block max-w-full">
                     <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
@@ -841,10 +832,10 @@ const AIPage = () => {
           </div>
         )}
 
-        {/* ===== EIGENSCHAFTEN ===== */}
+        {/* ===== EIGENSCHAFTEN mit Dokumententrennung ===== */}
         {tab === "eigenschaften" && (
           <div className="space-y-6 mt-4">
-            {/* Bereich 1: Dokumenttypen und Schlagwörter (2-spaltig) */}
+            {/* Bereich 1: Dokumenttypen und Schlagwörter */}
             <Card className="p-4">
               <div className="flex gap-2 mb-4">
                 <div className="flex-1">
@@ -916,7 +907,7 @@ const AIPage = () => {
               </div>
             </Card>
 
-            {/* Bereich 2: Trennung */}
+            {/* Bereich 2: Dokumententrennung */}
             <Card className="p-4">
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                 <Scissors className="h-4 w-4" /> Dokumententrennung
