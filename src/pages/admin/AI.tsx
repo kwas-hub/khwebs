@@ -893,7 +893,7 @@ const AIPage = () => {
           <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
           <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} size="sm" className="h-9">
             {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
-            PDF hochladen
+            PDF
           </Button>
         </div>
 
