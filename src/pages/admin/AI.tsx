@@ -47,6 +47,7 @@ const AIPage = () => {
   const [pageOcrText, setPageOcrText] = useState("");
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrProgressPercent, setOcrProgressPercent] = useState(0);
+  const [ocrStatusText, setOcrStatusText] = useState("");
   const [ocrProgress, setOcrProgress] = useState({ current: 0, total: 0 });
   const [uploading, setUploading] = useState(false);
   const [renderedSize, setRenderedSize] = useState({ w: 0, h: 0 });
@@ -588,81 +589,71 @@ const AIPage = () => {
   };
 
   /* ---------- OCR FÜR ALLE SEITEN MIT FORTSCHRITT ---------- */
-  // Neue States (ersetzen Sie die bestehenden)
-const [ocrRunning, setOcrRunning] = useState(false);
-const [ocrProgressPercent, setOcrProgressPercent] = useState(0);
-const [ocrStatusText, setOcrStatusText] = useState("");
-
-// In runOCRForAllPages:
-const runOCRForAllPages = async () => {
-  if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
-  if (pageOrder.length === 0) return;
-  
-  setOcrRunning(true);
-  setOcrProgressPercent(0);
-  setOcrStatusText(`Starte OCR auf ${pageOrder.length} Seiten...`);
-  setOcrProgress({ current: 0, total: pageOrder.length });
-  
-  const newCache: Record<number, WordBlock[]> = {};
-  const pageTexts: string[] = [];
-  
-  // Simulierter Fortschritt (für bessere UX)
-  let simulatedProgress = 0;
-  const progressInterval = setInterval(() => {
-    if (simulatedProgress < 90) {
-      simulatedProgress += Math.random() * 5;
-      setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
-    }
-  }, 500);
-  
-  for (let i = 0; i < pageOrder.length; i++) {
-    const pm = pageOrder[i];
-    const pageIdx = pm.idx;
-    setOcrStatusText(`OCR Seite ${i + 1} von ${pageOrder.length}...`);
+  const runOCRForAllPages = async () => {
+    if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
+    if (pageOrder.length === 0) return;
     
-    // Realer Fortschritt basierend auf Seiten (für genaue Anzeige am Ende)
-    const realProgress = Math.round(((i + 1) / pageOrder.length) * 100);
-    
-    if (ocrCache[pageIdx]) {
-      newCache[pageIdx] = ocrCache[pageIdx];
-      pageTexts[i] = ocrCache[pageIdx].map(w => w.text).join(" ");
-      setOcrProgress({ current: i + 1, total: pageOrder.length });
-      continue;
-    }
-    const { data: existing } = await supabase
-      .from("pdf_pages").select("ocr_blocks")
-      .eq("document_id", activeDoc.id).eq("page_index", pageIdx).maybeSingle();
-    if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-      const blocks = existing.ocr_blocks as WordBlock[];
-      newCache[pageIdx] = blocks;
-      pageTexts[i] = blocks.map(w => w.text).join(" ");
-      setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
-      setOcrProgress({ current: i + 1, total: pageOrder.length });
-      continue;
-    }
-    const page = await pdfDoc.getPage(pageIdx + 1);
-    const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-    const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
-    await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
-    const words = await performOCRForPage(pageIdx, tempCanvas);
-    newCache[pageIdx] = words || [];
-    pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
-    if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
-    setOcrProgress({ current: i + 1, total: pageOrder.length });
-  }
-  
-  // Aufräumen
-  clearInterval(progressInterval);
-  setOcrProgressPercent(100);
-  setOcrStatusText("OCR abgeschlossen!");
-  setOcrRunning(false);
-  
-  setTimeout(() => {
+    setOcrRunning(true);
     setOcrProgressPercent(0);
-    setOcrStatusText("");
-  }, 1000);
-
+    setOcrStatusText(`Starte OCR auf ${pageOrder.length} Seiten...`);
+    setOcrProgress({ current: 0, total: pageOrder.length });
+    
+    const newCache: Record<number, WordBlock[]> = {};
+    const pageTexts: string[] = [];
+    
+    // Simulierter Fortschritt (für bessere UX)
+    let simulatedProgress = 0;
+    const progressInterval = setInterval(() => {
+      if (simulatedProgress < 90) {
+        simulatedProgress += Math.random() * 5;
+        setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
+      }
+    }, 500);
+    
+    for (let i = 0; i < pageOrder.length; i++) {
+      const pm = pageOrder[i];
+      const pageIdx = pm.idx;
+      setOcrStatusText(`OCR Seite ${i + 1} von ${pageOrder.length}...`);
+      
+      if (ocrCache[pageIdx]) {
+        newCache[pageIdx] = ocrCache[pageIdx];
+        pageTexts[i] = ocrCache[pageIdx].map(w => w.text).join(" ");
+        setOcrProgress({ current: i + 1, total: pageOrder.length });
+        continue;
+      }
+      const { data: existing } = await supabase
+        .from("pdf_pages").select("ocr_blocks")
+        .eq("document_id", activeDoc.id).eq("page_index", pageIdx).maybeSingle();
+      if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
+        const blocks = existing.ocr_blocks as WordBlock[];
+        newCache[pageIdx] = blocks;
+        pageTexts[i] = blocks.map(w => w.text).join(" ");
+        setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
+        setOcrProgress({ current: i + 1, total: pageOrder.length });
+        continue;
+      }
+      const page = await pdfDoc.getPage(pageIdx + 1);
+      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+      await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+      const words = await performOCRForPage(pageIdx, tempCanvas);
+      newCache[pageIdx] = words || [];
+      pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
+      if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
+      setOcrProgress({ current: i + 1, total: pageOrder.length });
+    }
+    
+    // Aufräumen
+    clearInterval(progressInterval);
+    setOcrProgressPercent(100);
+    setOcrStatusText("OCR abgeschlossen!");
+    setOcrRunning(false);
+    
+    setTimeout(() => {
+      setOcrProgressPercent(0);
+      setOcrStatusText("");
+    }, 1000);
     
     toast.success(`OCR für ${pageOrder.length} Seiten abgeschlossen`);
     if (activeMeta && newCache[activeMeta.idx]) {
@@ -743,12 +734,33 @@ const runOCRForAllPages = async () => {
       
       clearInterval(progressInterval);
       setOcrProgressPercent(100);
+      setOcrStatusText("OCR abgeschlossen!");
       
       if (words && words.length > 0) {
-        // ... Erfolgslogik
-        setOcrStatusText("OCR abgeschlossen!");
+        setWordBlocks(words);
+        setPageOcrText(words.map(w => w.text).join(" "));
+        const next = { ...ocrCache, [activeMeta.idx]: words };
+        setOcrCache(next);
+        toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
+        
+        const allPageTexts: string[] = [];
+        for (let i = 0; i < pageOrder.length; i++) {
+          const pm = pageOrder[i];
+          if (next[pm.idx]) {
+            allPageTexts[i] = next[pm.idx].map(w => w.text).join(" ");
+          } else if (ocrCache[pm.idx]) {
+            allPageTexts[i] = ocrCache[pm.idx].map(w => w.text).join(" ");
+          } else {
+            allPageTexts[i] = "";
+          }
+        }
+        const allText = allPageTexts.join(" ");
+        const det = detectTypeFromText(allText);
+        await persistDetection(det.typeId, det.matched);
+        await checkAndSplit(allPageTexts);
       } else {
         setOcrStatusText("Keine Wörter erkannt");
+        toast.error("Keine Wörter erkannt");
       }
     } catch (err: any) {
       clearInterval(progressInterval);
@@ -762,6 +774,7 @@ const runOCRForAllPages = async () => {
       }, 1000);
     }
   };
+
   /* ---------- UPLOAD / NOTES / EXPORT / INSERT ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
