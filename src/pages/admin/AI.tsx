@@ -966,32 +966,41 @@ const AIPage = () => {
 
             {/* Navigationsleiste oberhalb der Spalten */}
             {activeDoc && pageOrder.length > 0 && (
-              <Card className="p-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-muted-foreground mr-2">Seite {activePageOrderIdx + 1} / {pageOrder.length}</span>
-                  <div className="h-4 w-px bg-border mx-1" />
-                  <Button variant="ghost" size="sm" onClick={movePageUp} disabled={activePageOrderIdx === 0} className="h-7 px-2">
-                    <MoveUp className="h-3.5 w-3.5 mr-1" /> Nach oben
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={movePageDown} disabled={activePageOrderIdx === pageOrder.length - 1} className="h-7 px-2">
-                    <MoveDown className="h-3.5 w-3.5 mr-1" /> Nach unten
-                  </Button>
-                  <div className="h-4 w-px bg-border mx-1" />
-                  <Button variant="ghost" size="sm" onClick={rotateCurrentPage} className="h-7 px-2">
-                    <RotateCw className="h-3.5 w-3.5 mr-1" /> Drehen
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={deleteCurrentPage} className="h-7 px-2 text-destructive hover:text-destructive">
-                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Löschen
-                  </Button>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button variant="outline" size="sm" onClick={manualSplitAtCurrentPage} className="h-7 px-2">
-                    <Scissors className="h-3.5 w-3.5 mr-1" /> Hier trennen
-                  </Button>
-                  <Button variant="default" size="sm" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-7 px-2">
-                    {ocrRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
-                    OCR alle Seiten
-                  </Button>
+              <Card className="p-2 overflow-x-auto">
+                <div className="flex flex-nowrap items-center gap-2 min-w-max">
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      Seite {activePageOrderIdx + 1} / {pageOrder.length}
+                    </span>
+                    <div className="h-4 w-px bg-border mx-1" />
+                    <Button variant="ghost" size="sm" onClick={movePageUp} disabled={activePageOrderIdx === 0} className="h-7 px-2">
+                      <MoveUp className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline ml-1">Nach oben</span>
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={movePageDown} disabled={activePageOrderIdx === pageOrder.length - 1} className="h-7 px-2">
+                      <MoveDown className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline ml-1">Nach unten</span>
+                    </Button>
+                    <div className="h-4 w-px bg-border mx-1" />
+                    <Button variant="ghost" size="sm" onClick={rotateCurrentPage} className="h-7 px-2">
+                      <RotateCw className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline ml-1">Drehen</span>
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={deleteCurrentPage} className="h-7 px-2 text-destructive hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline ml-1">Löschen</span>
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={manualSplitAtCurrentPage} className="h-7 px-2">
+                      <Scissors className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline ml-1">Hier trennen</span>
+                    </Button>
+                    <Button variant="default" size="sm" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-7 px-2">
+                      {ocrRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline ml-1">OCR alle Seiten</span>
+                    </Button>
+                  </div>
                 </div>
               </Card>
             )}
