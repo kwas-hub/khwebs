@@ -30,7 +30,6 @@ type WordBlock = { text: string; x: number; y: number; w: number; h: number };
 type DocType = { id: string; name: string; split_enabled?: boolean; split_regex?: string };
 type Keyword = { id: string; type_id: string; keyword: string };
 type SplitInfo = { pageIndex: number; match: string; position: number };
-type DocWithThumbs = Doc & { thumbnails?: Record<number, string> };
 
 const RENDER_SCALE = 1.4;
 
@@ -54,7 +53,7 @@ const AIPage = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
   const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
-  const [docsWithThumbs, setDocsWithThumbs] = useState<Record<string, Record<number, string>>>({});
+  const [allDocsThumbs, setAllDocsThumbs] = useState<Record<string, Record<number, string>>>({});
 
   // Document types / Properties
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
@@ -98,7 +97,7 @@ const AIPage = () => {
   }, []);
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
-  // Thumbnails für alle aktiven Dokumente laden
+  // Thumbnails für alle Seiten aller aktiven Dokumente laden
   useEffect(() => {
     const loadAllThumbnails = async () => {
       if (!userId) return;
@@ -111,7 +110,7 @@ const AIPage = () => {
         const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
         const out: Record<number, string> = {};
         const order: PageMeta[] = doc.page_order;
-        for (let i = 0; i < Math.min(order.length, 1); i++) {
+        for (let i = 0; i < order.length; i++) {
           const pm = order[i];
           try {
             const page = await pdf.getPage(pm.idx + 1);
@@ -124,7 +123,7 @@ const AIPage = () => {
         }
         newThumbs[doc.id] = out;
       }
-      setDocsWithThumbs(newThumbs);
+      setAllDocsThumbs(newThumbs);
     };
     loadAllThumbnails();
   }, [myCheckedOutDocs, userId]);
@@ -283,6 +282,7 @@ const AIPage = () => {
     }
     setNotes(d.notes || "");
     setSplitInfo(null);
+    setActivePageOrderIdx(0);
   };
   
   const releaseDoc = async (docId: string, event?: React.MouseEvent) => {
@@ -316,7 +316,7 @@ const AIPage = () => {
     run();
   }, [activeDoc?.id]);
 
-  /* ---------- THUMBNAILS für aktives Dokument ---------- */
+  /* ---------- THUMBNAILS für aktives Dokument (Detailansicht) ---------- */
   useEffect(() => {
     if (!pdfDoc || pageOrder.length === 0) return;
     let cancelled = false;
@@ -327,7 +327,7 @@ const AIPage = () => {
         if (out[pm.idx] !== undefined) continue;
         try {
           const page = await pdfDoc.getPage(pm.idx + 1);
-          const vp = page.getViewport({ scale: 0.15, rotation: pm.rotation });
+          const vp = page.getViewport({ scale: 0.2, rotation: pm.rotation });
           const c = document.createElement("canvas");
           c.width = vp.width; c.height = vp.height;
           await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
@@ -804,75 +804,9 @@ const AIPage = () => {
         {/* ===== DOKUMENTE ===== */}
         {tab === "dokumente" && (
           <div className="space-y-4 mt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-64 sm:w-80">
-                <button
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="flex items-center justify-between w-full h-9 px-3 py-2 text-sm bg-background border border-input rounded-md shadow-sm hover:bg-accent hover:text-accent-foreground"
-                >
-                  <span className="truncate">
-                    {activeDoc ? activeDoc.name : "Historie / PDF wählen"}
-                  </span>
-                  <ChevronUp className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
-                </button>
-                {isDropdownOpen && (
-                  <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-80 overflow-auto">
-                    {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>}
-                    {myCheckedOutDocs.length > 0 && (
-                      <>
-                        <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-b">
-                          Meine aktiven Dokumente
-                        </div>
-                        {myCheckedOutDocs.map(d => (
-                          <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
-                            <span className="flex-1 text-sm truncate" onClick={() => { selectDoc(d.id); setIsDropdownOpen(false); }}>
-                              {d.name}
-                            </span>
-                            <button onClick={(e) => releaseDoc(d.id, e)} className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Dokument zurücklegen">
-                              <Undo2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                    {otherDocs.length > 0 && (
-                      <>
-                        {myCheckedOutDocs.length > 0 && (
-                          <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-t border-b">
-                            Andere Dokumente
-                          </div>
-                        )}
-                        {otherDocs.map(d => (
-                          <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
-                            <span className="flex-1 text-sm truncate" onClick={() => { selectDoc(d.id); setIsDropdownOpen(false); }}>
-                              {d.name}
-                            </span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {activeDoc && (
-                <>
-                  <Button variant="outline" size="sm" className="h-9" onClick={() => releaseDoc(activeDoc.id)}>
-                    <Undo2 className="h-4 w-4 mr-1" />Zurücklegen
-                  </Button>
-                  <Button variant="outline" onClick={exportEdited} size="sm" className="h-9">
-                    <Download className="h-4 w-4 mr-1" />Export
-                  </Button>
-                  <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-9 w-9">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {/* Drei Spalten - IMMER mit aktiven Dokumenten in der linken Spalte */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
-              {/* Linke Spalte - Meine aktiven Dokumente (immer sichtbar) */}
+            {/* Drei Spalten - immer sichtbar */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_1fr] gap-4">
+              {/* Linke Spalte - Meine aktiven Dokumente mit Seiten-Thumbnails */}
               <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
                 <div className="flex justify-between items-center px-1 mb-1">
                   <div className="text-[10px] font-bold uppercase text-muted-foreground">Meine aktiven Dokumente</div>
@@ -905,7 +839,7 @@ const AIPage = () => {
                   </div>
                 )}
                 
-                {/* Liste aller aktiven Dokumente des Benutzers */}
+                {/* Liste aller aktiven Dokumente des Benutzers mit Seiten-Thumbnails */}
                 {myCheckedOutDocs.length === 0 ? (
                   <div className="border rounded p-3 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -923,39 +857,79 @@ const AIPage = () => {
                 ) : (
                   myCheckedOutDocs.map(doc => {
                     const isActive = activeDocId === doc.id;
-                    const docThumbs = docsWithThumbs[doc.id] || {};
-                    const firstThumb = Object.values(docThumbs)[0];
+                    const docThumbs = allDocsThumbs[doc.id] || {};
+                    const pageCount = doc.page_order?.length || 0;
                     
                     return (
                       <div 
                         key={doc.id} 
-                        className={`border rounded p-2 cursor-pointer transition-all ${isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
-                        onClick={() => selectDoc(doc.id)}
+                        className={`border rounded-lg overflow-hidden transition-all ${isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
                       >
-                        <div className="flex items-center gap-2">
-                          {firstThumb ? (
-                            <img src={firstThumb} alt="" className="w-8 h-10 object-contain rounded bg-muted" />
-                          ) : (
-                            <div className="w-8 h-10 bg-muted rounded flex items-center justify-center">
-                              <FileText className="h-4 w-4 text-muted-foreground" />
+                        {/* Dokument-Kopf */}
+                        <div 
+                          className="p-2 cursor-pointer"
+                          onClick={() => selectDoc(doc.id)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {Object.values(docThumbs)[0] ? (
+                              <img src={Object.values(docThumbs)[0]} alt="" className="w-8 h-10 object-contain rounded bg-muted" />
+                            ) : (
+                              <div className="w-8 h-10 bg-muted rounded flex items-center justify-center">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium truncate">{doc.name}</div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {doc.detected_type_id ? docTypes.find(t => t.id === doc.detected_type_id)?.name || "Typ erkannt" : "Kein Typ"} • {pageCount} Seite{pageCount !== 1 ? 'n' : ''}
+                              </div>
                             </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{doc.name}</div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {doc.detected_type_id ? docTypes.find(t => t.id === doc.detected_type_id)?.name || "Typ erkannt" : "Kein Typ"}
+                            {doc.checked_out_by === userId && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id); }}
+                                className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                                title="Dokument zurücklegen"
+                              >
+                                <Undo2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Seiten-Thumbnails - nur für das aktive Dokument anzeigen */}
+                        {isActive && pageCount > 0 && (
+                          <div className="border-t bg-muted/20 p-2">
+                            <div className="text-[9px] font-medium text-muted-foreground mb-1.5">Seiten</div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {doc.page_order.map((pm, idx) => {
+                                const thumb = docThumbs[pm.idx];
+                                return (
+                                  <div
+                                    key={idx}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActivePageOrderIdx(idx);
+                                    }}
+                                    className={`relative w-12 rounded border cursor-pointer transition-all overflow-hidden ${
+                                      isActive && activePageOrderIdx === idx ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/50'
+                                    }`}
+                                  >
+                                    <div className="aspect-[3/4] bg-muted flex items-center justify-center">
+                                      {thumb ? (
+                                        <img src={thumb} alt={`Seite ${idx + 1}`} className="w-full h-full object-contain" />
+                                      ) : (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      )}
+                                    </div>
+                                    <div className="absolute bottom-0 left-0 right-0 text-center text-[7px] font-medium bg-black/50 text-white py-0.5">
+                                      {idx + 1}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
-                          {doc.checked_out_by === userId && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id); }}
-                              className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                              title="Dokument zurücklegen"
-                            >
-                              <Undo2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     );
                   })
