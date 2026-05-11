@@ -28,6 +28,7 @@ type PageMeta = { idx: number; rotation: number };
 type WordBlock = { text: string; x: number; y: number; w: number; h: number };
 type DocType = { id: string; name: string; split_enabled?: boolean; split_regex?: string };
 type Keyword = { id: string; type_id: string; keyword: string };
+type SplitInfo = { pageIndex: number; match: string; position: number };
 
 const RENDER_SCALE = 1.4;
 
@@ -49,6 +50,7 @@ const AIPage = () => {
   const [ocrDebug, setOcrDebug] = useState<{ response: any; error: string | null; source: string }>({ response: null, error: null, source: "" });
   const [showDebug, setShowDebug] = useState(false);
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
+  const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
 
   // Document types / Properties
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
@@ -113,35 +115,136 @@ const AIPage = () => {
     await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id);
   };
 
-  // Prüfe ob ein Text die Trennkriterien erfüllt
-  const shouldSplitDocument = (text: string, detectedTypeId: string | null): boolean => {
+  // Finde die Stelle, an der das Dokument getrennt werden soll
+  const findSplitPoint = (pagesText: string[]): SplitInfo | null => {
+    const fullText = pagesText.join(" ");
+    
     // Prüfe globale Trennung
     if (globalSplitEnabled && globalSplitRegex) {
       try {
         const regex = new RegExp(globalSplitRegex, 'i');
-        if (regex.test(text)) return true;
+        const match = regex.exec(fullText);
+        if (match) {
+          // Finde die Seite, in der der Match liegt
+          let charCount = 0;
+          for (let i = 0; i < pagesText.length; i++) {
+            const pageStart = charCount;
+            const pageEnd = charCount + pagesText[i].length;
+            if (match.index >= pageStart && match.index < pageEnd) {
+              return { pageIndex: i, match: match[0], position: match.index - pageStart };
+            }
+            charCount = pageEnd + 1;
+          }
+        }
       } catch (e) { console.warn("Invalid global regex", e); }
     }
     
-    // Prüfe typspezifische Trennung
-    if (detectedTypeId) {
-      const type = docTypes.find(t => t.id === detectedTypeId);
+    // Prüfe typspezifische Trennung (für erkannten Typ)
+    if (activeDoc?.detected_type_id) {
+      const type = docTypes.find(t => t.id === activeDoc.detected_type_id);
       if (type?.split_enabled && type?.split_regex) {
         try {
           const regex = new RegExp(type.split_regex, 'i');
-          if (regex.test(text)) return true;
+          const match = regex.exec(fullText);
+          if (match) {
+            let charCount = 0;
+            for (let i = 0; i < pagesText.length; i++) {
+              const pageStart = charCount;
+              const pageEnd = charCount + pagesText[i].length;
+              if (match.index >= pageStart && match.index < pageEnd) {
+                return { pageIndex: i, match: match[0], position: match.index - pageStart };
+              }
+              charCount = pageEnd + 1;
+            }
+          }
         } catch (e) { console.warn("Invalid type regex", e); }
       }
     }
     
-    return false;
+    return null;
   };
 
-  // Trenne ein Dokument basierend auf OCR-Text
-  const splitDocument = async (originalDoc: Doc, text: string) => {
-    console.log("Splitting document based on:", text.substring(0, 100));
-    toast.info("Dokumententrennung wäre hier implementiert");
-    return null;
+  // Führe die Dokumententrennung durch
+  const performSplit = async (split: SplitInfo) => {
+    if (!activeDoc || !pdfDoc) return;
+    
+    toast.loading(`Trenne Dokument an Seite ${split.pageIndex + 1}...`, { id: "split" });
+    
+    try {
+      // Erstelle zwei neue Dokumente
+      // Teil 1: Seiten 0 bis split.pageIndex (inklusive)
+      const firstPartPages = pageOrder.slice(0, split.pageIndex + 1);
+      // Teil 2: Seiten split.pageIndex + 1 bis Ende
+      const secondPartPages = pageOrder.slice(split.pageIndex + 1);
+      
+      if (secondPartPages.length === 0) {
+        toast.error("Keine Seiten für zweiten Teil vorhanden", { id: "split" });
+        return;
+      }
+      
+      // Erstelle zwei neue Dokumente in der Datenbank
+      const timestamp = Date.now();
+      const newDoc1Name = `${activeDoc.name.replace(/\.pdf$/i, "")}_Teil1_${timestamp}.pdf`;
+      const newDoc2Name = `${activeDoc.name.replace(/\.pdf$/i, "")}_Teil2_${timestamp}.pdf`;
+      
+      // Kopiere das Original-PDF und teile es (hier vereinfacht: nur Metadaten)
+      // In einer vollständigen Implementierung müssten die PDF-Dateien tatsächlich geteilt werden
+      
+      const { data: newDoc1, error: err1 } = await supabase.from("pdf_documents").insert({
+        owner_id: userId,
+        name: newDoc1Name,
+        storage_path: activeDoc.storage_path, // TODO: PDF tatsächlich teilen
+        page_order: firstPartPages as any,
+        notes: `Getrennt von ${activeDoc.name} (Teil 1)`,
+        checked_out_by: userId,
+        checked_out_at: new Date().toISOString(),
+        detected_type_id: activeDoc.detected_type_id,
+        matched_keywords: activeDoc.matched_keywords,
+      }).select().single();
+      
+      if (err1) throw err1;
+      
+      const { data: newDoc2, error: err2 } = await supabase.from("pdf_documents").insert({
+        owner_id: userId,
+        name: newDoc2Name,
+        storage_path: activeDoc.storage_path, // TODO: PDF tatsächlich teilen
+        page_order: secondPartPages as any,
+        notes: `Getrennt von ${activeDoc.name} (Teil 2)`,
+        checked_out_by: userId,
+        checked_out_at: new Date().toISOString(),
+        detected_type_id: activeDoc.detected_type_id,
+        matched_keywords: activeDoc.matched_keywords,
+      }).select().single();
+      
+      if (err2) throw err2;
+      
+      // Lösche das Original-Dokument
+      await supabase.from("pdf_documents").delete().eq("id", activeDoc.id);
+      
+      toast.success(`Dokument getrennt: "${newDoc1Name}" und "${newDoc2Name}"`, { id: "split" });
+      
+      // Lade Dokumentliste neu und wähle den ersten Teil aus
+      await loadDocs();
+      setActiveDocId(newDoc1.id);
+      setSplitInfo(null);
+      
+    } catch (error: any) {
+      console.error("Split error:", error);
+      toast.error(`Fehler beim Trennen: ${error.message}`, { id: "split" });
+    }
+  };
+
+  // Prüfe nach OCR, ob getrennt werden soll
+  const checkAndSplit = async (pagesText: string[]) => {
+    const split = findSplitPoint(pagesText);
+    if (split) {
+      setSplitInfo(split);
+      // Automatisch trennen (oder Benutzer fragen)
+      const shouldSplit = window.confirm(`Trennpunkt gefunden: "${split.match}" auf Seite ${split.pageIndex + 1}. Möchten Sie das Dokument hier trennen?`);
+      if (shouldSplit) {
+        await performSplit(split);
+      }
+    }
   };
 
   /* ---------- CHECKOUT / RELEASE ---------- */
@@ -157,12 +260,11 @@ const AIPage = () => {
       setDocs(p => p.map(x => x.id === id ? { ...x, checked_out_by: userId } : x));
     }
     setNotes(d.notes || "");
+    setSplitInfo(null);
   };
   
   const releaseDoc = async (docId: string, event?: React.MouseEvent) => {
-    if (event) {
-      event.stopPropagation();
-    }
+    if (event) event.stopPropagation();
     await supabase.from("pdf_documents")
       .update({ checked_out_by: null, checked_out_at: null })
       .eq("id", docId);
@@ -182,6 +284,7 @@ const AIPage = () => {
       setActivePageOrderIdx(0);
       setThumbs({});
       setOcrCache({});
+      setSplitInfo(null);
       const { data, error } = await supabase.storage.from("pdfs").download(activeDoc.storage_path);
       if (error) { toast.error("Download fehlgeschlagen"); return; }
       const buf = await data.arrayBuffer();
@@ -366,11 +469,6 @@ const AIPage = () => {
     
     const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
-    
-    const allText = Object.values(ocrCache).flat().map(w => w.text).join(" ");
-    if (shouldSplitDocument(allText, typeId)) {
-      await splitDocument(activeDoc, allText);
-    }
   };
 
   /* ---------- OCR FÜR ALLE SEITEN ---------- */
@@ -380,11 +478,14 @@ const AIPage = () => {
     setOcrRunning(true);
     setOcrProgress({ current: 0, total: pageOrder.length });
     const newCache: Record<number, WordBlock[]> = {};
+    const pageTexts: string[] = [];
+    
     for (let i = 0; i < pageOrder.length; i++) {
       const pm = pageOrder[i];
       const pageIdx = pm.idx;
       if (ocrCache[pageIdx]) {
         newCache[pageIdx] = ocrCache[pageIdx];
+        pageTexts[i] = ocrCache[pageIdx].map(w => w.text).join(" ");
         setOcrProgress({ current: i + 1, total: pageOrder.length });
         continue;
       }
@@ -394,6 +495,7 @@ const AIPage = () => {
       if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
         const blocks = existing.ocr_blocks as WordBlock[];
         newCache[pageIdx] = blocks;
+        pageTexts[i] = blocks.map(w => w.text).join(" ");
         setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
         setOcrProgress({ current: i + 1, total: pageOrder.length });
         continue;
@@ -405,6 +507,7 @@ const AIPage = () => {
       await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
       const words = await performOCRForPage(pageIdx, tempCanvas);
       newCache[pageIdx] = words || [];
+      pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
       if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
       setOcrProgress({ current: i + 1, total: pageOrder.length });
     }
@@ -417,6 +520,9 @@ const AIPage = () => {
     const allText = Object.values(newCache).flat().map(w => w.text).join(" ");
     const det = detectTypeFromText(allText);
     await persistDetection(det.typeId, det.matched);
+    
+    // Prüfe auf Trennung
+    await checkAndSplit(pageTexts);
   };
 
   /* ---------- SEITE RENDERN ---------- */
@@ -466,9 +572,23 @@ const AIPage = () => {
         const next = { ...ocrCache, [activeMeta.idx]: words };
         setOcrCache(next);
         toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
-        const allText = Object.values(next).flat().map(w => w.text).join(" ");
+        
+        // Für die Trennung benötigen wir den Text aller Seiten
+        const allPageTexts: string[] = [];
+        for (let i = 0; i < pageOrder.length; i++) {
+          const pm = pageOrder[i];
+          if (next[pm.idx]) {
+            allPageTexts[i] = next[pm.idx].map(w => w.text).join(" ");
+          } else if (ocrCache[pm.idx]) {
+            allPageTexts[i] = ocrCache[pm.idx].map(w => w.text).join(" ");
+          } else {
+            allPageTexts[i] = "";
+          }
+        }
+        const allText = allPageTexts.join(" ");
         const det = detectTypeFromText(allText);
         await persistDetection(det.typeId, det.matched);
+        await checkAndSplit(allPageTexts);
       } else toast.error("Keine Wörter erkannt");
     } catch (err: any) {
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
@@ -735,6 +855,15 @@ const AIPage = () => {
                       OCR alle
                     </Button>
                   </div>
+                  {splitInfo && (
+                    <div className="bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded text-xs">
+                      <div className="font-medium">Trennpunkt gefunden!</div>
+                      <div>"{splitInfo.match}" auf Seite {splitInfo.pageIndex + 1}</div>
+                      <Button size="sm" className="mt-1 h-6 text-[10px]" onClick={() => performSplit(splitInfo)}>
+                        <Scissors className="h-3 w-3 mr-1" /> Jetzt trennen
+                      </Button>
+                    </div>
+                  )}
                   {ocrRunning && (
                     <div className="text-xs text-center text-muted-foreground mb-2">
                       OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
@@ -835,7 +964,6 @@ const AIPage = () => {
         {/* ===== EIGENSCHAFTEN mit Dokumententrennung ===== */}
         {tab === "eigenschaften" && (
           <div className="space-y-6 mt-4">
-            {/* Bereich 1: Dokumenttypen und Schlagwörter */}
             <Card className="p-4">
               <div className="flex gap-2 mb-4">
                 <div className="flex-1">
