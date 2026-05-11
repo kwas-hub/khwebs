@@ -140,6 +140,59 @@ export type Database = {
         }
         Relationships: []
       }
+      document_type_keywords: {
+        Row: {
+          created_at: string
+          id: string
+          keyword: string
+          type_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          keyword: string
+          type_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          keyword?: string
+          type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_type_keywords_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_types: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       email_templates: {
         Row: {
           body: string
@@ -347,8 +400,12 @@ export type Database = {
       }
       pdf_documents: {
         Row: {
+          checked_out_at: string | null
+          checked_out_by: string | null
           created_at: string
+          detected_type_id: string | null
           id: string
+          matched_keywords: Json
           name: string
           notes: string
           owner_id: string
@@ -357,8 +414,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          checked_out_at?: string | null
+          checked_out_by?: string | null
           created_at?: string
+          detected_type_id?: string | null
           id?: string
+          matched_keywords?: Json
           name?: string
           notes?: string
           owner_id: string
@@ -367,8 +428,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          checked_out_at?: string | null
+          checked_out_by?: string | null
           created_at?: string
+          detected_type_id?: string | null
           id?: string
+          matched_keywords?: Json
           name?: string
           notes?: string
           owner_id?: string
