@@ -414,7 +414,6 @@ const AIPage = () => {
         const str = item?.str;
         if (!str || !str.trim()) continue;
         
-        // Position aus dem Transform-Array extrahieren
         if (!item.transform || item.transform.length < 6) continue;
         
         const [, , , , e, f] = item.transform;
@@ -423,7 +422,6 @@ const AIPage = () => {
         
         if (w <= 0 || h <= 0) continue;
         
-        // Text in einzelne Wörter zerlegen (basierend auf Leerzeichen)
         const words = str.split(/\s+/).filter((word: string) => word.length > 0);
         if (words.length === 0) continue;
         
@@ -431,7 +429,6 @@ const AIPage = () => {
         const totalChars = str.length;
         
         for (const word of words) {
-          // Berechne die ungefähre Position des Wortes basierend auf dem Zeichenanteil
           const wordStart = str.indexOf(word, accumulatedChars);
           if (wordStart === -1) {
             accumulatedChars += word.length + 1;
@@ -444,7 +441,6 @@ const AIPage = () => {
           const x1 = e + (startRatio * w);
           const x2 = e + (endRatio * w);
           
-          // In Viewport-Koordinaten umrechnen
           const [x1v, y1v] = viewport.convertToViewportPoint(x1, f);
           const [x2v, y2v] = viewport.convertToViewportPoint(x2, f + h);
           
@@ -650,36 +646,48 @@ const AIPage = () => {
     await checkAndSplit(pageTexts);
   };
 
-  /* ---------- SEITE RENDERN ---------- */
+  /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB (KEINE AUTOMATISCHE OCR) ---------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
-      setWordBlocks([]); setPageOcrText("");
+      setWordBlocks([]);
+      setPageOcrText("");
       const page = await pdfDoc.getPage(activeMeta.idx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d")!;
-      canvas.width = viewport.width; canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
-      if (ocrCache[activeMeta.idx]) {
+
+      // 1. Aus Cache laden (wenn bereits in dieser Session geladen)
+      if (ocrCache[activeMeta.idx] && ocrCache[activeMeta.idx].length > 0) {
         const cached = ocrCache[activeMeta.idx];
         setWordBlocks(cached);
         setPageOcrText(cached.map(w => w.text).join(" "));
         setOcrDebug({ response: null, error: null, source: "cache" });
         return;
       }
+      
+      // 2. Aus Datenbank laden (persistierte OCR-Ergebnisse)
       const { data: existing } = await supabase
-        .from("pdf_pages").select("ocr_blocks")
-        .eq("document_id", activeDoc!.id).eq("page_index", activeMeta.idx).maybeSingle();
+        .from("pdf_pages")
+        .select("ocr_blocks, ocr_text")
+        .eq("document_id", activeDoc!.id)
+        .eq("page_index", activeMeta.idx)
+        .maybeSingle();
+        
       if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
         const blocks = existing.ocr_blocks as WordBlock[];
         setWordBlocks(blocks);
-        setPageOcrText(blocks.map(w => w.text).join(" "));
+        setPageOcrText(existing.ocr_text || blocks.map(w => w.text).join(" "));
         setOcrCache(prev => ({ ...prev, [activeMeta.idx]: blocks }));
         setOcrDebug({ response: null, error: null, source: "database" });
         return;
       }
+      
+      // 3. Keine OCR-Daten vorhanden
       setOcrDebug({ response: null, error: null, source: "none" });
     };
     run();
@@ -1026,7 +1034,7 @@ const AIPage = () => {
                       className="mt-2 h-7 text-xs"
                     >
                       <Upload className="h-3 w-3 mr-1" />
-                      PDF hochladen
+                      PDF
                     </Button>
                   </div>
                 ) : (
