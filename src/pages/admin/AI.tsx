@@ -32,6 +32,7 @@ type Keyword = { id: string; type_id: string; keyword: string };
 type SplitInfo = { pageIndex: number; match: string; position: number };
 
 const RENDER_SCALE = 1.4;
+const PAGE_THUMB_SCALE = 0.15;
 
 const AIPage = () => {
   const { userId } = useAuth();
@@ -53,7 +54,7 @@ const AIPage = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
   const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
-  const [allDocsThumbs, setAllDocsThumbs] = useState<Record<string, Record<number, string>>>({});
+  const [allPagesThumbs, setAllPagesThumbs] = useState<Record<string, Record<number, string>>>({});
 
   // Document types / Properties
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
@@ -79,7 +80,6 @@ const AIPage = () => {
 
   // Meine ausgecheckten Dokumente
   const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
-  const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
 
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
@@ -99,7 +99,7 @@ const AIPage = () => {
 
   // Thumbnails für alle Seiten aller aktiven Dokumente laden
   useEffect(() => {
-    const loadAllThumbnails = async () => {
+    const loadAllPageThumbnails = async () => {
       if (!userId) return;
       const newThumbs: Record<string, Record<number, string>> = {};
       
@@ -114,7 +114,7 @@ const AIPage = () => {
           const pm = order[i];
           try {
             const page = await pdf.getPage(pm.idx + 1);
-            const vp = page.getViewport({ scale: 0.15, rotation: pm.rotation });
+            const vp = page.getViewport({ scale: PAGE_THUMB_SCALE, rotation: pm.rotation });
             const c = document.createElement("canvas");
             c.width = vp.width; c.height = vp.height;
             await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
@@ -123,10 +123,40 @@ const AIPage = () => {
         }
         newThumbs[doc.id] = out;
       }
-      setAllDocsThumbs(newThumbs);
+      setAllPagesThumbs(newThumbs);
     };
-    loadAllThumbnails();
+    loadAllPageThumbnails();
   }, [myCheckedOutDocs, userId]);
+
+  // Funktion zum Auswählen eines Dokuments und einer bestimmten Seite
+  const selectDocAndPage = async (docId: string, pageIdx: number) => {
+    setActiveDocId(docId);
+    setActivePageOrderIdx(pageIdx);
+    if (!userId) return;
+    const d = docs.find(x => x.id === docId);
+    if (!d) return;
+    if (d.checked_out_by !== userId) {
+      await supabase.from("pdf_documents")
+        .update({ checked_out_by: userId, checked_out_at: new Date().toISOString() })
+        .eq("id", docId);
+      setDocs(p => p.map(x => x.id === docId ? { ...x, checked_out_by: userId } : x));
+    }
+    setNotes(d.notes || "");
+    setSplitInfo(null);
+  };
+  
+  const releaseDoc = async (docId: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    await supabase.from("pdf_documents")
+      .update({ checked_out_by: null, checked_out_at: null })
+      .eq("id", docId);
+    toast.success("Dokument zurückgelegt");
+    if (activeDocId === docId) {
+      setActiveDocId(null);
+      setPdfDoc(null);
+    }
+    loadDocs();
+  };
 
   // Speichere Split-Einstellungen für einen Typ
   const saveTypeSplitSettings = async (typeId: string, splitEnabled: boolean, splitRegex: string) => {
@@ -268,36 +298,6 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- CHECKOUT / RELEASE ---------- */
-  const selectDoc = async (id: string) => {
-    setActiveDocId(id);
-    if (!userId) return;
-    const d = docs.find(x => x.id === id);
-    if (!d) return;
-    if (d.checked_out_by !== userId) {
-      await supabase.from("pdf_documents")
-        .update({ checked_out_by: userId, checked_out_at: new Date().toISOString() })
-        .eq("id", id);
-      setDocs(p => p.map(x => x.id === id ? { ...x, checked_out_by: userId } : x));
-    }
-    setNotes(d.notes || "");
-    setSplitInfo(null);
-    setActivePageOrderIdx(0);
-  };
-  
-  const releaseDoc = async (docId: string, event?: React.MouseEvent) => {
-    if (event) event.stopPropagation();
-    await supabase.from("pdf_documents")
-      .update({ checked_out_by: null, checked_out_at: null })
-      .eq("id", docId);
-    toast.success("Dokument zurückgelegt");
-    if (activeDocId === docId) {
-      setActiveDocId(null);
-      setPdfDoc(null);
-    }
-    loadDocs();
-  };
-
   /* ---------- LOAD PDF ---------- */
   useEffect(() => {
     const run = async () => {
@@ -316,7 +316,7 @@ const AIPage = () => {
     run();
   }, [activeDoc?.id]);
 
-  /* ---------- THUMBNAILS für aktives Dokument (Detailansicht) ---------- */
+  /* ---------- THUMBNAILS für aktives Dokument (Detailansicht rechts) ---------- */
   useEffect(() => {
     if (!pdfDoc || pageOrder.length === 0) return;
     let cancelled = false;
@@ -327,7 +327,7 @@ const AIPage = () => {
         if (out[pm.idx] !== undefined) continue;
         try {
           const page = await pdfDoc.getPage(pm.idx + 1);
-          const vp = page.getViewport({ scale: 0.2, rotation: pm.rotation });
+          const vp = page.getViewport({ scale: 0.25, rotation: pm.rotation });
           const c = document.createElement("canvas");
           c.width = vp.width; c.height = vp.height;
           await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
@@ -804,10 +804,66 @@ const AIPage = () => {
         {/* ===== DOKUMENTE ===== */}
         {tab === "dokumente" && (
           <div className="space-y-4 mt-4">
-            {/* Drei Spalten - immer sichtbar */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-64 sm:w-80">
+                <button
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center justify-between w-full h-9 px-3 py-2 text-sm bg-background border border-input rounded-md shadow-sm hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="truncate">
+                    {activeDoc ? activeDoc.name : "Historie / PDF wählen"}
+                  </span>
+                  <ChevronUp className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+                {isDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-80 overflow-auto">
+                    {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>}
+                    {myCheckedOutDocs.length > 0 && (
+                      <>
+                        <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-b">
+                          Meine aktiven Dokumente
+                        </div>
+                        {myCheckedOutDocs.map(d => (
+                          <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
+                            <span className="flex-1 text-sm truncate" onClick={() => { selectDocAndPage(d.id, 0); setIsDropdownOpen(false); }}>
+                              {d.name}
+                            </span>
+                            <button onClick={(e) => releaseDoc(d.id, e)} className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Dokument zurücklegen">
+                              <Undo2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {otherDocs.map(d => (
+                      <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
+                        <span className="flex-1 text-sm truncate" onClick={() => { selectDocAndPage(d.id, 0); setIsDropdownOpen(false); }}>
+                          {d.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {activeDoc && (
+                <>
+                  <Button variant="outline" size="sm" className="h-9" onClick={() => releaseDoc(activeDoc.id)}>
+                    <Undo2 className="h-4 w-4 mr-1" />Zurücklegen
+                  </Button>
+                  <Button variant="outline" onClick={exportEdited} size="sm" className="h-9">
+                    <Download className="h-4 w-4 mr-1" />Export
+                  </Button>
+                  <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-9 w-9">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Drei Spalten - Seiten-Thumbnails als flache Liste mit Trenner */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_1fr] gap-4">
-              {/* Linke Spalte - Meine aktiven Dokumente mit Seiten-Thumbnails */}
-              // Linke Spalte - Alle Seiten aller aktiven Dokumente als flache Liste
+              {/* Linke Spalte - Alle Seiten aller aktiven Dokumente als flache Liste */}
               <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
                 <div className="flex justify-between items-center px-1 mb-1">
                   <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten (aktive Dokumente)</div>
@@ -840,7 +896,7 @@ const AIPage = () => {
                   </div>
                 )}
                 
-                {/* Alle Seiten aller aktiven Dokumente als flache Liste */}
+                {/* Alle Seiten aller aktiven Dokumente als flache Liste mit Trenner */}
                 {myCheckedOutDocs.length === 0 ? (
                   <div className="border rounded p-3 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -856,16 +912,26 @@ const AIPage = () => {
                     </Button>
                   </div>
                 ) : (
-                  myCheckedOutDocs.map((doc, docIndex) => {
-                    const docThumbs = allDocsThumbs[doc.id] || {};
-                    const pageCount = doc.page_order?.length || 0;
+                  myCheckedOutDocs.map((doc) => {
+                    const docThumbs = allPagesThumbs[doc.id] || {};
                     const isActive = activeDocId === doc.id;
                     
                     return (
-                      <div key={doc.id} className="space-y-1">
+                      <div key={doc.id} className="space-y-2">
                         {/* Trenner mit Dokumentnamen */}
-                        <div className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded ${isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted/30'}`}>
-                          {doc.name}
+                        <div className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded flex items-center justify-between ${
+                          isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted/30'
+                        }`}>
+                          <span>{doc.name}</span>
+                          {doc.checked_out_by === userId && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id, e); }}
+                              className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Dokument zurücklegen"
+                            >
+                              <Undo2 className="h-3 w-3" />
+                            </button>
+                          )}
                         </div>
                         
                         {/* Seiten-Thumbnails als Grid */}
