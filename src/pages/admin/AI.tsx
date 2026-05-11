@@ -920,12 +920,6 @@ const AIPage = () => {
                       setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
                       await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
                     }} />
-                    <div className="flex gap-1">
-                      <Button onClick={runOCRCurrentPage} disabled={ocrRunning} size="sm">
-                        {ocrRunning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                        Seite OCR
-                      </Button>
-                    </div>
                   </div>
                   <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[250px] sm:min-h-[300px] md:min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
                   <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
