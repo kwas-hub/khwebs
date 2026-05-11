@@ -566,7 +566,7 @@ const AIPage = () => {
           {/* ===== DOKUMENTE ===== */}
           <TabsContent value="dokumente" className="space-y-4 mt-4">
             <div className="flex flex-wrap items-center gap-2">
-              {/* Custom Select mit eigenem Dropdown für Zurücklegen-Button */}
+              {/* Custom Dropdown mit immer sichtbarem Zurücklegen-Button */}
               <div className="relative w-64 sm:w-80">
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -585,7 +585,7 @@ const AIPage = () => {
                     {docs.map(d => (
                       <div
                         key={d.id}
-                        className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer group"
+                        className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer"
                       >
                         <span
                           className="flex-1 text-sm truncate"
@@ -599,7 +599,7 @@ const AIPage = () => {
                         {d.checked_out_by === userId && (
                           <button
                             onClick={(e) => releaseDoc(d.id, e)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                            className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                             title="Dokument zurücklegen"
                           >
                             <Undo2 className="h-4 w-4" />
@@ -692,7 +692,6 @@ const AIPage = () => {
 
                 {/* MITTLERE SPALTE: Editor mit Dokumenttyp-Anzeige ÜBER dem Textarea */}
                 <Card className="p-4 flex flex-col">
-                  {/* Dokumenttyp-Anzeige über dem Textarea */}
                   <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
                     <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp</div>
                     <div className="flex items-center justify-between">
