@@ -1,5 +1,5 @@
 import AdminLayout from "@/components/admin/AdminLayout";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card } from "@/components/ui/card";
@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, WifiOff } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -15,14 +17,21 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-type Doc = { id: string; name: string; storage_path: string; page_order: PageMeta[]; notes: string; created_at: string };
+type Doc = {
+  id: string; name: string; storage_path: string; page_order: PageMeta[]; notes: string;
+  created_at: string; checked_out_by: string | null;
+  detected_type_id: string | null; matched_keywords: string[];
+};
 type PageMeta = { idx: number; rotation: number };
 type WordBlock = { text: string; x: number; y: number; w: number; h: number };
+type DocType = { id: string; name: string };
+type Keyword = { id: string; type_id: string; keyword: string };
 
 const RENDER_SCALE = 1.4;
 
 const AIPage = () => {
   const { userId } = useAuth();
+  const [tab, setTab] = useState("dokumente");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [pdfDoc, setPdfDoc] = useState<any>(null);
@@ -39,6 +48,12 @@ const AIPage = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
 
+  // Document types
+  const [docTypes, setDocTypes] = useState<DocType[]>([]);
+  const [keywords, setKeywords] = useState<Keyword[]>([]);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [newKeywordByType, setNewKeywordByType] = useState<Record<string, string>>({});
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,14 +61,47 @@ const AIPage = () => {
   const activeDoc = docs.find(d => d.id === activeDocId) || null;
   const pageOrder: PageMeta[] = activeDoc?.page_order || [];
   const activeMeta = pageOrder[activePageOrderIdx];
+  const detectedType = useMemo(() => docTypes.find(t => t.id === activeDoc?.detected_type_id) || null, [docTypes, activeDoc?.detected_type_id]);
 
-  /* ---------- LOAD DOC LIST ---------- */
+  /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
     if (!userId) return;
     const { data } = await supabase.from("pdf_documents").select("*").order("created_at", { ascending: false });
-    setDocs((data ?? []) as unknown as Doc[]);
+    setDocs(((data ?? []) as any[]).map(d => ({ ...d, matched_keywords: d.matched_keywords ?? [] })) as Doc[]);
   }, [userId]);
-  useEffect(() => { loadDocs(); }, [loadDocs]);
+  const loadTypes = useCallback(async () => {
+    const [t, k] = await Promise.all([
+      supabase.from("document_types").select("*").order("name"),
+      supabase.from("document_type_keywords").select("*").order("keyword"),
+    ]);
+    setDocTypes((t.data ?? []) as DocType[]);
+    setKeywords((k.data ?? []) as Keyword[]);
+  }, []);
+  useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
+
+  /* ---------- CHECKOUT / RELEASE ---------- */
+  const selectDoc = async (id: string) => {
+    setActiveDocId(id);
+    if (!userId) return;
+    const d = docs.find(x => x.id === id);
+    if (!d) return;
+    if (d.checked_out_by !== userId) {
+      await supabase.from("pdf_documents")
+        .update({ checked_out_by: userId, checked_out_at: new Date().toISOString() })
+        .eq("id", id);
+      setDocs(p => p.map(x => x.id === id ? { ...x, checked_out_by: userId } : x));
+    }
+  };
+  const releaseDoc = async () => {
+    if (!activeDoc) return;
+    await supabase.from("pdf_documents")
+      .update({ checked_out_by: null, checked_out_at: null })
+      .eq("id", activeDoc.id);
+    toast.success("Dokument zurückgelegt");
+    setActiveDocId(null);
+    setPdfDoc(null);
+    loadDocs();
+  };
 
   /* ---------- LOAD PDF ---------- */
   useEffect(() => {
@@ -96,52 +144,44 @@ const AIPage = () => {
     return () => { cancelled = true; };
   }, [pdfDoc, pageOrder.length]);
 
-  /* ---------- NATIVE PDF.JS TEXTEXTRAKTION (Fallback) ---------- */
+  /* ---------- NATIVE PDF.JS TEXTEXTRAKTION ---------- */
   const extractNativeWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
     try {
       const textContent = await page.getTextContent();
       const items = textContent.items;
       if (!items || !Array.isArray(items)) return [];
       const blocks: WordBlock[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (!item || typeof item !== "object") continue;
-        const str = item.str;
-        if (!str || str.trim() === "") continue;
-        let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-        if (item.transform && Array.isArray(item.transform) && item.transform.length >= 6) {
-          const [a, b, c, d, e, f] = item.transform;
-          x1 = e;
-          y1 = f;
-          const w = typeof item.width === "number" ? item.width : 0;
-          const h = typeof item.height === "number" ? item.height : 0;
-          x2 = e + w;
-          y2 = f + h;
-        } else if (typeof item.x === "number" && typeof item.y === "number") {
-          x1 = item.x;
-          y1 = item.y;
-          const w = typeof item.width === "number" ? item.width : 0;
-          const h = typeof item.height === "number" ? item.height : 0;
-          x2 = item.x + w;
-          y2 = item.y + h;
-        } else {
-          continue;
+      for (const item of items) {
+        const str = item?.str;
+        if (!str || !str.trim()) continue;
+        if (!item.transform || item.transform.length < 6) continue;
+        const [, , , , e, f] = item.transform;
+        const w = typeof item.width === "number" ? item.width : 0;
+        const h = typeof item.height === "number" ? item.height : 0;
+        if (w <= 0 || h <= 0) continue;
+        // Split text spans into individual words proportionally on width
+        const words = str.split(/\s+/).filter((w: string) => w.length > 0);
+        if (words.length === 0) continue;
+        const totalChars = str.replace(/\s/g, "").length || 1;
+        let acc = 0;
+        for (const word of words) {
+          const startRatio = acc / totalChars;
+          const endRatio = (acc + word.length) / totalChars;
+          acc += word.length;
+          const x1 = e + startRatio * w;
+          const x2 = e + endRatio * w;
+          const [x1v, y1v] = viewport.convertToViewportPoint(x1, f);
+          const [x2v, y2v] = viewport.convertToViewportPoint(x2, f + h);
+          const left = Math.min(x1v, x2v);
+          const top = Math.min(y1v, y2v);
+          const width = Math.abs(x2v - x1v);
+          const height = Math.abs(y2v - y1v);
+          if (width <= 0.5 || height <= 0.5) continue;
+          blocks.push({
+            text: word, x: left / canvasWidth, y: top / canvasHeight,
+            w: width / canvasWidth, h: height / canvasHeight,
+          });
         }
-        if (x2 <= x1 || y2 <= y1) continue;
-        const [x1v, y1v] = viewport.convertToViewportPoint(x1, y1);
-        const [x2v, y2v] = viewport.convertToViewportPoint(x2, y2);
-        const left = Math.min(x1v, x2v);
-        const top = Math.min(y1v, y2v);
-        const width = Math.abs(x2v - x1v);
-        const height = Math.abs(y2v - y1v);
-        if (width <= 0.5 || height <= 0.5) continue;
-        blocks.push({
-          text: str,
-          x: left / canvasWidth,
-          y: top / canvasHeight,
-          w: width / canvasWidth,
-          h: height / canvasHeight,
-        });
       }
       return blocks;
     } catch (err) {
@@ -150,70 +190,49 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- SERVER OCR (Edge Function) mit Zerlegung in Wörter ---------- */
+  /* ---------- SERVER OCR ---------- */
   const runServerOCRForImage = async (imageDataUrl: string): Promise<WordBlock[] | null> => {
     try {
-      const { data, error } = await supabase.functions.invoke("pdf-ocr", {
-        body: { imageDataUrl },
-      });
+      const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
       if (error) throw error;
-      let blocks = data?.blocks;
-      if (!blocks || !Array.isArray(blocks)) return [];
-      const canvas = canvasRef.current;
-      if (!canvas) return null;
-      const wordBlocks: WordBlock[] = [];
-      for (const block of blocks) {
-        const text = block.text || "";
-        if (!text.trim()) continue;
-        const bbox = block.bbox;
-        if (!bbox) continue;
-        const words = text.split(/\s+/).filter(w => w.length > 0);
-        if (words.length === 0) continue;
-        const totalChars = text.length;
-        let currentCharPos = 0;
-        const blockLeft = bbox.x;
-        const blockTop = bbox.y;
-        const blockWidth = bbox.w;
-        const blockHeight = bbox.h;
-        for (const word of words) {
-          const wordStart = text.indexOf(word, currentCharPos);
-          if (wordStart === -1) {
-            currentCharPos += word.length + 1;
-            continue;
+      const arr = (data?.words ?? data?.blocks) as any[] | undefined;
+      if (!arr || !Array.isArray(arr)) return [];
+      const out: WordBlock[] = [];
+      for (const b of arr) {
+        const text = (b?.text ?? "").toString().trim();
+        const bbox = b?.bbox;
+        if (!text || !bbox) continue;
+        // If model returned a multi-word string with one bbox, split proportionally as fallback.
+        const words = text.split(/\s+/).filter(Boolean);
+        if (words.length === 1) {
+          out.push({ text: words[0], x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h });
+        } else {
+          const total = words.join("").length || 1;
+          let acc = 0;
+          for (const w of words) {
+            const sR = acc / total;
+            const eR = (acc + w.length) / total;
+            acc += w.length;
+            out.push({ text: w, x: bbox.x + sR * bbox.w, y: bbox.y, w: (eR - sR) * bbox.w, h: bbox.h });
           }
-          const wordEnd = wordStart + word.length;
-          const startRatio = wordStart / totalChars;
-          const endRatio = wordEnd / totalChars;
-          const wordX = blockLeft + startRatio * blockWidth;
-          const wordW = (endRatio - startRatio) * blockWidth;
-          wordBlocks.push({
-            text: word,
-            x: wordX,
-            y: blockTop,
-            w: wordW,
-            h: blockHeight,
-          });
-          currentCharPos = wordEnd + 1;
         }
       }
-      return wordBlocks;
-    } catch (err: any) {
+      return out;
+    } catch (err) {
       console.error(err);
       return null;
     }
   };
 
-  /* ---------- OCR FÜR EINE EINZELNE SEITE (unter Verwendung eines Canvas) ---------- */
+  /* ---------- OCR FÜR EINE SEITE ---------- */
   const performOCRForPage = async (pageIndex: number, canvasElement: HTMLCanvasElement): Promise<WordBlock[] | null> => {
     try {
       const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
       let words = await runServerOCRForImage(imageDataUrl);
       if (words && words.length > 0) {
         await supabase.from("pdf_pages").upsert({
-          document_id: activeDoc!.id,
-          page_index: pageIndex,
-          ocr_text: words.map(w => w.text).join(" "),
-          ocr_blocks: words as any,
+          document_id: activeDoc!.id, page_index: pageIndex,
+          ocr_text: words.map(w => w.text).join(" "), ocr_blocks: words as any,
         }, { onConflict: "document_id,page_index" });
         return words;
       } else {
@@ -225,47 +244,61 @@ const AIPage = () => {
         const nativeWords = await extractNativeWordBlocks(page, viewport, canvasElement.width, canvasElement.height);
         if (nativeWords.length > 0) {
           await supabase.from("pdf_pages").upsert({
-            document_id: activeDoc!.id,
-            page_index: pageIndex,
-            ocr_text: nativeWords.map(w => w.text).join(" "),
-            ocr_blocks: nativeWords as any,
+            document_id: activeDoc!.id, page_index: pageIndex,
+            ocr_text: nativeWords.map(w => w.text).join(" "), ocr_blocks: nativeWords as any,
           }, { onConflict: "document_id,page_index" });
           return nativeWords;
         }
         return [];
       }
     } catch (err) {
-      console.error(`OCR Fehler für Seite ${pageIndex + 1}:`, err);
+      console.error(`OCR Fehler Seite ${pageIndex + 1}:`, err);
       return null;
     }
   };
 
-  /* ---------- OCR FÜR ALLE SEITEN (einmalig, mit Fortschritt) ---------- */
-  const runOCRForAllPages = async () => {
-    if (!pdfDoc || !activeDoc) {
-      toast.error("Kein PDF geladen");
-      return;
+  /* ---------- KEYWORD DETECTION ---------- */
+  const detectTypeFromText = (fullText: string): { typeId: string | null; matched: string[] } => {
+    if (!fullText) return { typeId: null, matched: [] };
+    const lower = fullText.toLowerCase();
+    let bestType: string | null = null;
+    let bestMatches: string[] = [];
+    for (const t of docTypes) {
+      const kws = keywords.filter(k => k.type_id === t.id).map(k => k.keyword);
+      const found = kws.filter(k => k && lower.includes(k.toLowerCase()));
+      if (found.length > bestMatches.length) {
+        bestMatches = found;
+        bestType = t.id;
+      }
     }
+    return { typeId: bestType, matched: bestMatches };
+  };
+  const persistDetection = async (typeId: string | null, matched: string[]) => {
+    if (!activeDoc) return;
+    setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, detected_type_id: typeId, matched_keywords: matched } : d));
+    await supabase.from("pdf_documents")
+      .update({ detected_type_id: typeId, matched_keywords: matched as any })
+      .eq("id", activeDoc.id);
+  };
+
+  /* ---------- OCR FÜR ALLE SEITEN ---------- */
+  const runOCRForAllPages = async () => {
+    if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
     if (pageOrder.length === 0) return;
     setOcrRunning(true);
     setOcrProgress({ current: 0, total: pageOrder.length });
     const newCache: Record<number, WordBlock[]> = {};
-
     for (let i = 0; i < pageOrder.length; i++) {
       const pm = pageOrder[i];
       const pageIdx = pm.idx;
-
       if (ocrCache[pageIdx]) {
         newCache[pageIdx] = ocrCache[pageIdx];
         setOcrProgress({ current: i + 1, total: pageOrder.length });
         continue;
       }
       const { data: existing } = await supabase
-        .from("pdf_pages")
-        .select("ocr_blocks")
-        .eq("document_id", activeDoc.id)
-        .eq("page_index", pageIdx)
-        .maybeSingle();
+        .from("pdf_pages").select("ocr_blocks")
+        .eq("document_id", activeDoc.id).eq("page_index", pageIdx).maybeSingle();
       if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
         const blocks = existing.ocr_blocks as WordBlock[];
         newCache[pageIdx] = blocks;
@@ -273,48 +306,40 @@ const AIPage = () => {
         setOcrProgress({ current: i + 1, total: pageOrder.length });
         continue;
       }
-
       const page = await pdfDoc.getPage(pageIdx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
       const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = viewport.width;
-      tempCanvas.height = viewport.height;
-      const ctx = tempCanvas.getContext("2d")!;
-      await page.render({ canvasContext: ctx, viewport }).promise;
-
+      tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+      await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
       const words = await performOCRForPage(pageIdx, tempCanvas);
-      if (words && words.length > 0) {
-        newCache[pageIdx] = words;
-        setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
-      } else {
-        newCache[pageIdx] = [];
-      }
+      newCache[pageIdx] = words || [];
+      if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
       setOcrProgress({ current: i + 1, total: pageOrder.length });
     }
-
     setOcrRunning(false);
     toast.success(`OCR für ${pageOrder.length} Seiten abgeschlossen`);
     if (activeMeta && newCache[activeMeta.idx]) {
       setWordBlocks(newCache[activeMeta.idx]);
       setPageOcrText(newCache[activeMeta.idx].map(w => w.text).join(" "));
     }
+    // Detect document type from all OCR text
+    const allText = Object.values(newCache).flat().map(w => w.text).join(" ");
+    const det = detectTypeFromText(allText);
+    await persistDetection(det.typeId, det.matched);
   };
 
-  /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB (KEINE AUTOMATISCHE OCR) ---------- */
+  /* ---------- SEITE RENDERN ---------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
-      setWordBlocks([]);
-      setPageOcrText("");
+      setWordBlocks([]); setPageOcrText("");
       const page = await pdfDoc.getPage(activeMeta.idx + 1);
       const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d")!;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      canvas.width = viewport.width; canvas.height = viewport.height;
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
-
       if (ocrCache[activeMeta.idx]) {
         const cached = ocrCache[activeMeta.idx];
         setWordBlocks(cached);
@@ -323,11 +348,8 @@ const AIPage = () => {
         return;
       }
       const { data: existing } = await supabase
-        .from("pdf_pages")
-        .select("ocr_blocks")
-        .eq("document_id", activeDoc!.id)
-        .eq("page_index", activeMeta.idx)
-        .maybeSingle();
+        .from("pdf_pages").select("ocr_blocks")
+        .eq("document_id", activeDoc!.id).eq("page_index", activeMeta.idx).maybeSingle();
       if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
         const blocks = existing.ocr_blocks as WordBlock[];
         setWordBlocks(blocks);
@@ -350,19 +372,19 @@ const AIPage = () => {
       if (words && words.length > 0) {
         setWordBlocks(words);
         setPageOcrText(words.map(w => w.text).join(" "));
-        setOcrCache(prev => ({ ...prev, [activeMeta.idx]: words }));
+        const next = { ...ocrCache, [activeMeta.idx]: words };
+        setOcrCache(next);
         toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
-      } else {
-        toast.error("Keine Wörter erkannt");
-      }
+        const allText = Object.values(next).flat().map(w => w.text).join(" ");
+        const det = detectTypeFromText(allText);
+        await persistDetection(det.typeId, det.matched);
+      } else toast.error("Keine Wörter erkannt");
     } catch (err: any) {
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
-    } finally {
-      setOcrRunning(false);
-    }
+    } finally { setOcrRunning(false); }
   };
 
-  /* ---------- WEITERE FUNKTIONEN (Upload, Seitenaktionen, Notes, Export, Insert) ---------- */
+  /* ---------- UPLOAD / SEITEN / NOTES / EXPORT / INSERT ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
     if (file.type !== "application/pdf") { toast.error("Nur PDF-Dateien"); return; }
@@ -376,6 +398,7 @@ const AIPage = () => {
       const order: PageMeta[] = Array.from({ length: pdf.numPages }, (_, i) => ({ idx: i, rotation: 0 }));
       const { data, error } = await supabase.from("pdf_documents").insert({
         owner_id: userId, name: file.name, storage_path: path, page_order: order as any, notes: "",
+        checked_out_by: userId, checked_out_at: new Date().toISOString(),
       }).select().single();
       if (error) throw error;
       toast.success("PDF hochgeladen");
@@ -383,9 +406,7 @@ const AIPage = () => {
       setActiveDocId(data.id);
     } catch (e: any) {
       toast.error(e.message || "Upload fehlgeschlagen");
-    } finally {
-      setUploading(false);
-    }
+    } finally { setUploading(false); }
   };
 
   const persistOrder = async (newOrder: PageMeta[], focusIdx?: number) => {
@@ -394,14 +415,10 @@ const AIPage = () => {
     if (focusIdx !== undefined) setActivePageOrderIdx(Math.max(0, Math.min(focusIdx, newOrder.length - 1)));
     await supabase.from("pdf_documents").update({ page_order: newOrder as any }).eq("id", activeDoc.id);
   };
-  const rotatePage = (i: number) => {
-    const next = pageOrder.map((p, idx) => idx === i ? { ...p, rotation: (p.rotation + 90) % 360 } : p);
-    persistOrder(next, i);
-  };
+  const rotatePage = (i: number) => persistOrder(pageOrder.map((p, idx) => idx === i ? { ...p, rotation: (p.rotation + 90) % 360 } : p), i);
   const deletePage = (i: number) => {
     if (pageOrder.length <= 1) { toast.error("Mindestens 1 Seite erforderlich"); return; }
-    const next = pageOrder.filter((_, idx) => idx !== i);
-    persistOrder(next, Math.min(i, next.length - 1));
+    persistOrder(pageOrder.filter((_, idx) => idx !== i), Math.min(i, pageOrder.length - 2));
   };
   const movePage = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -470,7 +487,43 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- RENDER (responsiv optimiert, Thumbnails horizontal swipebar auf mobil) ---------- */
+  /* ---------- DOC TYPES MANAGER ---------- */
+  const addType = async () => {
+    const name = newTypeName.trim();
+    if (!name) return;
+    const { data, error } = await supabase.from("document_types").insert({ name, created_by: userId }).select().single();
+    if (error) { toast.error(error.message); return; }
+    setNewTypeName("");
+    setDocTypes(p => [...p, data as DocType].sort((a, b) => a.name.localeCompare(b.name)));
+  };
+  const renameType = async (id: string, name: string) => {
+    setDocTypes(p => p.map(t => t.id === id ? { ...t, name } : t));
+    await supabase.from("document_types").update({ name }).eq("id", id);
+  };
+  const deleteType = async (id: string) => {
+    if (!confirm("Dokumenttyp inkl. Schlagwörter löschen?")) return;
+    await supabase.from("document_types").delete().eq("id", id);
+    setDocTypes(p => p.filter(t => t.id !== id));
+    setKeywords(p => p.filter(k => k.type_id !== id));
+  };
+  const addKeyword = async (typeId: string) => {
+    const kw = (newKeywordByType[typeId] || "").trim();
+    if (!kw) return;
+    const { data, error } = await supabase.from("document_type_keywords").insert({ type_id: typeId, keyword: kw }).select().single();
+    if (error) { toast.error(error.message); return; }
+    setKeywords(p => [...p, data as Keyword]);
+    setNewKeywordByType(p => ({ ...p, [typeId]: "" }));
+  };
+  const updateKeyword = async (id: string, keyword: string) => {
+    setKeywords(p => p.map(k => k.id === id ? { ...k, keyword } : k));
+    await supabase.from("document_type_keywords").update({ keyword }).eq("id", id);
+  };
+  const deleteKeyword = async (id: string) => {
+    await supabase.from("document_type_keywords").delete().eq("id", id);
+    setKeywords(p => p.filter(k => k.id !== id));
+  };
+
+  /* ---------- RENDER ---------- */
   return (
     <AdminLayout>
       <div className="space-y-4">
@@ -483,143 +536,212 @@ const AIPage = () => {
               PDFs hochladen, Seiten bearbeiten, einzelne Wörter übernehmen.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={activeDocId || ""} onValueChange={setActiveDocId}>
-              <SelectTrigger className="w-48 sm:w-56 h-9 text-sm">
-                <SelectValue placeholder="Historie / PDF wählen" />
-              </SelectTrigger>
-              <SelectContent>
-                {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground">Keine Dokumente</div>}
-                {docs.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
-            <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} size="sm" className="h-9">
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
-              PDF hochladen
-            </Button>
-            {activeDoc && (
-              <>
-                <Button variant="outline" onClick={exportEdited} size="sm" className="h-9">
-                  <Download className="h-4 w-4 mr-1" />Export
-                </Button>
-                <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-9 w-9">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-          </div>
         </div>
 
-        {!activeDoc ? (
-          <Card className="p-12 text-center text-muted-foreground">
-            <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p>Lade ein PDF hoch oder wähle eines aus der Historie aus.</p>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[260px_1fr_1fr] gap-4">
-            {/* Seitenleiste - auf Desktop vertikales Raster, auf mobil horizontaler Swipe-Container */}
-            <Card className="p-3 space-y-2">
-              <div className="flex justify-between items-center px-1 mb-2">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
-                <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
-                  {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                  OCR alle
-                </Button>
-              </div>
-              {ocrRunning && (
-                <div className="text-xs text-center text-muted-foreground mb-2">
-                  OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
-                </div>
-              )}
-              
-              {/* Mobil: horizontal scrollbar (Swipe) / Desktop: normales vertikales Grid */}
-              <div className="lg:hidden overflow-x-auto pb-2 -mx-1 px-1">
-                <div className="flex flex-row gap-2 snap-x snap-mandatory">
-                  {pageOrder.map((pm, i) => (
-                    <div key={i} className={`snap-start shrink-0 w-24 rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
-                      <div className="aspect-[3/4] bg-muted flex items-center justify-center relative">
-                        {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-                        <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
-                      </div>
-                      <div className="flex justify-end gap-0.5 p-0.5 bg-muted/50">
-                        <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-2.5 w-2.5" /></Button>
-                        <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-2.5 w-2.5" /></Button>
-                        <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-2.5 w-2.5" /></Button>
-                        <Button size="icon" variant="destructive" className="h-5 w-5" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-2.5 w-2.5" /></Button>
-                      </div>
-                    </div>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="dokumente"><FileText className="h-4 w-4 mr-1" />Dokumente</TabsTrigger>
+            <TabsTrigger value="typen"><Tag className="h-4 w-4 mr-1" />Dokumenttypen</TabsTrigger>
+          </TabsList>
+
+          {/* ===== DOKUMENTE ===== */}
+          <TabsContent value="dokumente" className="space-y-4 mt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={activeDocId || ""} onValueChange={selectDoc}>
+                <SelectTrigger className="w-48 sm:w-64 h-9 text-sm">
+                  <SelectValue placeholder="Historie / PDF wählen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground">Keine Dokumente</div>}
+                  {docs.map(d => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}{d.checked_out_by === userId ? " 🔒" : ""}
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
-              
-              {/* Desktop: vertikales Raster */}
-              <div className="hidden lg:grid grid-cols-1 gap-2 max-h-[calc(100vh-240px)] overflow-y-auto">
-                {pageOrder.map((pm, i) => (
-                  <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
-                    <div className="aspect-[3/4] bg-muted flex items-center justify-center">
-                      {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-                    </div>
-                    <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
-                    <div className="absolute bottom-1 right-1 flex gap-0.5">
-                      <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
-                      <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-3 w-3" /></Button>
-                      <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-3 w-3" /></Button>
-                      <Button size="icon" variant="destructive" className="h-6 w-6" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-3 w-3" /></Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* Editor */}
-            <Card className="p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                <Input value={activeDoc.name} className="h-8 text-sm font-bold border-0 px-1 flex-1" onChange={async e => {
-                  setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
-                  await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
-                }} />
-                <div className="flex gap-1">
-                  <Button onClick={runOCRCurrentPage} disabled={ocrRunning} size="sm">
-                    {ocrRunning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                    Seite OCR
+                </SelectContent>
+              </Select>
+              <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
+              <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} size="sm" className="h-9">
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
+                PDF hochladen
+              </Button>
+              {activeDoc && (
+                <>
+                  <Button variant="outline" size="sm" className="h-9" onClick={releaseDoc} title="Für andere User wieder freigeben">
+                    <Undo2 className="h-4 w-4 mr-1" />Zurücklegen
                   </Button>
-                </div>
-              </div>
-              <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[250px] sm:min-h-[300px] md:min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
-              <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
-            </Card>
+                  <Button variant="outline" onClick={exportEdited} size="sm" className="h-9">
+                    <Download className="h-4 w-4 mr-1" />Export
+                  </Button>
+                  <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-9 w-9">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+            </div>
 
-            {/* Vorschau mit Wort-Overlays */}
-            <Card className="p-3 overflow-auto bg-muted/30 relative">
-              <div className="relative inline-block max-w-full">
-                <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
-                {wordBlocks.map((word, i) => (
-                  <button key={i} onClick={() => insertAtCursor(word.text)} title={word.text}
-                    className="absolute border border-blue-400/60 bg-blue-500/10 hover:bg-blue-500/30 transition-colors cursor-pointer rounded-sm"
-                    style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} />
-                ))}
-              </div>
-              {/* Debug-Bereich */}
-              {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && (
-                <div className="mt-3 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold">🔍 OCR Debug</span>
-                    <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-6 px-2">
-                      {showDebug ? "Weniger" : "Mehr"} <Bug className="h-3 w-3 ml-1" />
+            {!activeDoc ? (
+              <Card className="p-12 text-center text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p>Lade ein PDF hoch oder wähle eines aus der Historie aus.</p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[260px_1fr_1fr] gap-4">
+                {/* Seitenleiste */}
+                <Card className="p-3 space-y-2">
+                  <div className="flex justify-between items-center px-1 mb-2">
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten ({pageOrder.length})</div>
+                    <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
+                      {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
+                      OCR alle
                     </Button>
                   </div>
-                  <div className="mt-1">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
-                  {ocrDebug.error && <div className="text-red-600 mt-1">❌ Fehler: {ocrDebug.error}</div>}
-                  {showDebug && ocrDebug.response && (
-                    <pre className="mt-2 overflow-auto max-h-60 bg-black text-white p-2 rounded text-[10px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
+                  {ocrRunning && (
+                    <div className="text-xs text-center text-muted-foreground mb-2">
+                      OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
+                    </div>
                   )}
-                  {wordBlocks.length === 0 && !ocrRunning && <div className="text-red-600 mt-1">⚠️ Keine Wörter erkannt.</div>}
-                </div>
+                  <div className="lg:hidden overflow-x-auto pb-2 -mx-1 px-1">
+                    <div className="flex flex-row gap-2 snap-x snap-mandatory">
+                      {pageOrder.map((pm, i) => (
+                        <div key={i} className={`snap-start shrink-0 w-24 rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
+                          <div className="aspect-[3/4] bg-muted flex items-center justify-center relative">
+                            {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                            <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
+                          </div>
+                          <div className="flex justify-end gap-0.5 p-0.5 bg-muted/50">
+                            <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-2.5 w-2.5" /></Button>
+                            <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-2.5 w-2.5" /></Button>
+                            <Button size="icon" variant="secondary" className="h-5 w-5" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-2.5 w-2.5" /></Button>
+                            <Button size="icon" variant="destructive" className="h-5 w-5" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-2.5 w-2.5" /></Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="hidden lg:grid grid-cols-1 gap-2 max-h-[calc(100vh-280px)] overflow-y-auto">
+                    {pageOrder.map((pm, i) => (
+                      <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
+                        <div className="aspect-[3/4] bg-muted flex items-center justify-center">
+                          {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt={`Seite ${i + 1}`} className="w-full h-full object-contain" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                        </div>
+                        <div className="absolute top-1 left-1 bg-background/90 text-[10px] font-bold px-1.5 py-0.5 rounded">{i + 1}</div>
+                        <div className="absolute bottom-1 right-1 flex gap-0.5">
+                          <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
+                          <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-3 w-3" /></Button>
+                          <Button size="icon" variant="secondary" className="h-6 w-6" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-3 w-3" /></Button>
+                          <Button size="icon" variant="destructive" className="h-6 w-6" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-3 w-3" /></Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Erkannter Dokumenttyp + Schlagwörter */}
+                  <div className="border-t pt-2 mt-2 space-y-1">
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground">Erkannter Dokumenttyp</div>
+                    <div className="text-sm font-medium">
+                      {detectedType ? detectedType.name : <span className="text-muted-foreground italic">– keiner –</span>}
+                    </div>
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground mt-2">Erkannte Schlagwörter</div>
+                    <div className="flex flex-wrap gap-1">
+                      {(activeDoc.matched_keywords || []).length > 0
+                        ? activeDoc.matched_keywords.map((k, i) => <Badge key={i} variant="secondary" className="text-[10px]">{k}</Badge>)
+                        : <span className="text-xs text-muted-foreground italic">– keine –</span>}
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Editor */}
+                <Card className="p-4 flex flex-col">
+                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                    <Input value={activeDoc.name} className="h-8 text-sm font-bold border-0 px-1 flex-1" onChange={async e => {
+                      setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
+                      await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
+                    }} />
+                    <div className="flex gap-1">
+                      <Button onClick={runOCRCurrentPage} disabled={ocrRunning} size="sm">
+                        {ocrRunning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                        Seite OCR
+                      </Button>
+                    </div>
+                  </div>
+                  <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[250px] sm:min-h-[300px] md:min-h-[400px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
+                  <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
+                </Card>
+
+                {/* Vorschau */}
+                <Card className="p-3 overflow-auto bg-muted/30 relative">
+                  <div className="relative inline-block max-w-full">
+                    <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
+                    {wordBlocks.map((word, i) => (
+                      <button key={i} onClick={() => insertAtCursor(word.text)} title={word.text}
+                        className="absolute border border-blue-400/60 bg-blue-500/10 hover:bg-blue-500/30 transition-colors cursor-pointer rounded-sm"
+                        style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} />
+                    ))}
+                  </div>
+                  {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && (
+                    <div className="mt-3 p-2 bg-muted rounded text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold">🔍 OCR Debug</span>
+                        <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-6 px-2">
+                          {showDebug ? "Weniger" : "Mehr"} <Bug className="h-3 w-3 ml-1" />
+                        </Button>
+                      </div>
+                      <div className="mt-1">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
+                      {ocrDebug.error && <div className="text-destructive mt-1">❌ {ocrDebug.error}</div>}
+                      {showDebug && ocrDebug.response && (
+                        <pre className="mt-2 overflow-auto max-h-60 bg-foreground text-background p-2 rounded text-[10px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ===== TYPEN ===== */}
+          <TabsContent value="typen" className="space-y-4 mt-4">
+            <Card className="p-4">
+              <div className="flex gap-2 mb-4">
+                <Input placeholder="Neuer Dokumenttyp (z.B. Rechnung)" value={newTypeName}
+                  onChange={e => setNewTypeName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && addType()} />
+                <Button onClick={addType}><Plus className="h-4 w-4 mr-1" />Anlegen</Button>
+              </div>
+              {docTypes.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-6">Noch keine Dokumenttypen angelegt.</p>
               )}
+              <div className="space-y-3">
+                {docTypes.map(t => {
+                  const kws = keywords.filter(k => k.type_id === t.id);
+                  return (
+                    <Card key={t.id} className="p-3 space-y-2">
+                      <div className="flex gap-2 items-center">
+                        <Input value={t.name} onChange={e => renameType(t.id, e.target.value)} className="font-semibold" />
+                        <Button variant="destructive" size="icon" onClick={() => deleteType(t.id)}><Trash2 className="h-4 w-4" /></Button>
+                      </div>
+                      <div className="text-[10px] font-bold uppercase text-muted-foreground">Schlagwörter</div>
+                      <div className="space-y-1">
+                        {kws.map(k => (
+                          <div key={k.id} className="flex gap-2 items-center">
+                            <Input value={k.keyword} onChange={e => updateKeyword(k.id, e.target.value)} className="h-8" />
+                            <Button variant="ghost" size="icon" onClick={() => deleteKeyword(k.id)} className="h-8 w-8"><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <Input placeholder="Schlagwort hinzufügen" value={newKeywordByType[t.id] || ""}
+                          onChange={e => setNewKeywordByType(p => ({ ...p, [t.id]: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && addKeyword(t.id)} className="h-8" />
+                        <Button size="sm" onClick={() => addKeyword(t.id)}><Plus className="h-4 w-4" /></Button>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
             </Card>
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
       </div>
     </AdminLayout>
   );
