@@ -19,11 +19,11 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not set");
 
-    const sys = `You are an OCR engine. Extract every text block from the image.
-Return ONLY a JSON object via the tool call 'ocr_result' with: 
-- 'full_text' (string with newlines preserved),
-- 'blocks': array of { text: string, bbox: { x: number, y: number, w: number, h: number } } where coordinates are RELATIVE 0..1 of the image dimensions.
-Return at most 60 blocks. Group nearby words into logical text lines or paragraphs.`;
+    const sys = `You are a precise OCR engine. Extract EVERY individual WORD from the image as its own item.
+For EACH word return a tight bounding box that snugly encloses ONLY that word's glyphs (no surrounding whitespace, no neighbouring words).
+Coordinates MUST be RELATIVE 0..1 of the image dimensions (x=left, y=top, w=width, h=height).
+Do NOT group words into lines or paragraphs. Return up to 600 word entries.
+Use the tool 'ocr_result'. 'full_text' should reconstruct the page text with line breaks preserved.`;
 
     const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -36,7 +36,7 @@ Return at most 60 blocks. Group nearby words into logical text lines or paragrap
         messages: [
           { role: "system", content: sys },
           { role: "user", content: [
-            { type: "text", text: "OCR this page. Return the JSON via the tool." },
+            { type: "text", text: "OCR this page. Return one item per WORD with a tight bbox via the tool." },
             { type: "image_url", image_url: { url: imageDataUrl } },
           ]},
         ],
@@ -44,12 +44,12 @@ Return at most 60 blocks. Group nearby words into logical text lines or paragrap
           type: "function",
           function: {
             name: "ocr_result",
-            description: "Return OCR results.",
+            description: "Return per-word OCR results.",
             parameters: {
               type: "object",
               properties: {
                 full_text: { type: "string" },
-                blocks: {
+                words: {
                   type: "array",
                   items: {
                     type: "object",
@@ -68,7 +68,7 @@ Return at most 60 blocks. Group nearby words into logical text lines or paragrap
                   },
                 },
               },
-              required: ["full_text","blocks"], additionalProperties: false,
+              required: ["full_text","words"], additionalProperties: false,
             },
           },
         }],
@@ -86,9 +86,10 @@ Return at most 60 blocks. Group nearby words into logical text lines or paragrap
 
     const data = await resp.json();
     const call = data?.choices?.[0]?.message?.tool_calls?.[0];
-    const args = call ? JSON.parse(call.function.arguments) : { full_text: "", blocks: [] };
+    const args = call ? JSON.parse(call.function.arguments) : { full_text: "", words: [] };
 
-    return new Response(JSON.stringify(args), {
+    // Backwards-compat: also expose as `blocks`
+    return new Response(JSON.stringify({ ...args, blocks: args.words ?? [] }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e: any) {
