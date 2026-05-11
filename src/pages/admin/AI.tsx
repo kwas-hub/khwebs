@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, CloudUpload } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -860,43 +860,72 @@ const AIPage = () => {
             </div>
 
             {!activeDoc ? (
-              // NEU: Upload-Ansicht als Standard, wenn kein Dokument ausgewählt
-              <Card className="border-2 border-dashed border-border bg-muted/20">
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                  <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                    <CloudUpload className="h-10 w-10 text-primary" />
+              // DREI SPALTEN MIT PLATZHALTERN (statt Upload-Ansicht)
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
+                {/* Linke Spalte - Seitenleiste mit aktiven Dokumenten (Platzhalter) */}
+                <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
+                  <div className="flex justify-between items-center px-1 mb-1">
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground">Meine aktiven Dokumente</div>
+                    <Button size="sm" variant="outline" disabled className="h-6 text-[10px] opacity-50">
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      OCR alle
+                    </Button>
                   </div>
-                  <h3 className="text-lg font-semibold mb-2">Kein Dokument ausgewählt</h3>
-                  <p className="text-sm text-muted-foreground mb-6 max-w-md">
-                    Wählen Sie ein Dokument aus der Liste aus oder laden Sie ein neues PDF hoch, um zu beginnen.
-                  </p>
-                  <div className="flex gap-3 flex-wrap justify-center">
+                  
+                  {/* Platzhalter für aktive Dokumente */}
+                  <div className="border rounded p-3 text-center text-muted-foreground">
+                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-xs">Keine aktiven Dokumente</p>
                     <Button 
+                      size="sm" 
+                      variant="outline" 
                       onClick={() => fileInputRef.current?.click()} 
-                      disabled={uploading}
-                      className="gap-2"
+                      className="mt-2 h-7 text-xs"
                     >
-                      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                      <Upload className="h-3 w-3 mr-1" />
                       PDF hochladen
                     </Button>
-                    {docs.length > 0 && (
-                      <Button 
-                        variant="outline" 
-                        onClick={() => setIsDropdownOpen(true)}
-                        className="gap-2"
-                      >
-                        <FileText className="h-4 w-4" />
-                        Dokument auswählen
-                      </Button>
-                    )}
                   </div>
-                  {docs.length === 0 && !uploading && (
-                    <p className="text-xs text-muted-foreground mt-6">
-                      Unterstützte Formate: PDF
-                    </p>
-                  )}
-                </div>
-              </Card>
+                </Card>
+
+                {/* Mittlere Spalte - Editor (leer/disabled) */}
+                <Card className="p-4 flex flex-col">
+                  <div className="mb-3 p-2 bg-muted/50 rounded-lg border">
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground mb-0.5">Dokumenttyp</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-semibold text-muted-foreground">Nicht erkannt</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                    <Input 
+                      placeholder="Kein Dokument ausgewählt" 
+                      className="h-7 text-sm border-0 px-1 flex-1 text-muted-foreground" 
+                      disabled
+                    />
+                    <Button disabled size="sm" className="h-7 text-xs opacity-50">
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      Seite OCR
+                    </Button>
+                  </div>
+                  <Textarea 
+                    className="flex-1 min-h-[200px] sm:min-h-[250px] md:min-h-[300px] font-mono text-sm" 
+                    placeholder="Wählen Sie ein Dokument aus, um OCR durchzuführen..."
+                    disabled
+                    value=""
+                  />
+                  <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
+                </Card>
+
+                {/* Rechte Spalte - Vorschau (leer/disabled) */}
+                <Card className="p-2 overflow-auto bg-muted/30 relative flex items-center justify-center min-h-[300px]">
+                  <div className="text-center text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">Keine Vorschau verfügbar</p>
+                    <p className="text-xs mt-1">Wählen Sie ein Dokument aus der Liste aus</p>
+                  </div>
+                </Card>
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
                 {/* Seitenleiste - alle aktiven Dokumente mit ihren Thumbnails */}
