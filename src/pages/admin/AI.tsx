@@ -82,11 +82,10 @@ const AIPage = () => {
   // NEU: Funktion zum Aktualisieren des erkannten Dokuments im Textarea
   const updateDetectedInfoInNotes = async (type: DocType | null, matchedKw: string[]) => {
     if (!activeDoc) return;
-    const header = `=== Dokumenttyp: ${type?.name || "Kein Typ erkannt"} ===\n`;
     const keywordsLine = `Erkannte Schlagwörter: ${matchedKw.join(", ") || "Keine"}\n`;
-    const separator = "=".repeat(40) + "\n\n";
+    const separator = "=".repeat(5) + "\n\n";
     
-    const newContent = header + keywordsLine + separator + (activeDoc.notes || "");
+    const newContent = keywordsLine + separator + (activeDoc.notes || "");
     setNotes(newContent);
     await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id);
   };
@@ -655,41 +654,17 @@ const AIPage = () => {
                       </div>
                     ))}
                   </div>
-
-                  {/* Erkannter Dokumenttyp + Schlagwörter (jetzt in der Seitenleiste als Info) */}
-                  <div className="border-t pt-2 mt-2 space-y-1">
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground">Erkannter Dokumenttyp</div>
-                    <div className="text-sm font-medium">
-                      {detectedType ? detectedType.name : <span className="text-muted-foreground italic">– keiner –</span>}
-                    </div>
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground mt-2">Erkannte Schlagwörter</div>
-                    <div className="flex flex-wrap gap-1">
-                      {(activeDoc.matched_keywords || []).length > 0
-                        ? activeDoc.matched_keywords.map((k, i) => <Badge key={i} variant="secondary" className="text-[10px]">{k}</Badge>)
-                        : <span className="text-xs text-muted-foreground italic">– keine –</span>}
-                    </div>
-                  </div>
                 </Card>
 
                 {/* MITTLERE SPALTE: Editor mit Dokumenttyp-Anzeige ÜBER dem Textarea */}
                 <Card className="p-4 flex flex-col">
                   {/* NEU: Dokumenttyp-Anzeige über dem Textarea */}
                   <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
-                    <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp (automatisch erkannt)</div>
+                    <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp</div>
                     <div className="flex items-center justify-between">
                       <span className="text-lg font-semibold">
                         {detectedType ? detectedType.name : "Nicht erkannt"}
                       </span>
-                      {(activeDoc.matched_keywords || []).length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {activeDoc.matched_keywords.slice(0, 3).map((k, i) => (
-                            <Badge key={i} variant="outline" className="text-[10px]">{k}</Badge>
-                          ))}
-                          {activeDoc.matched_keywords.length > 3 && (
-                            <Badge variant="outline" className="text-[10px]">+{activeDoc.matched_keywords.length - 3}</Badge>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
 
