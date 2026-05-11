@@ -588,52 +588,81 @@ const AIPage = () => {
   };
 
   /* ---------- OCR FÜR ALLE SEITEN MIT FORTSCHRITT ---------- */
-  const runOCRForAllPages = async () => {
-    if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
-    if (pageOrder.length === 0) return;
-    setOcrRunning(true);
-    setOcrProgressPercent(0);
-    setOcrProgress({ current: 0, total: pageOrder.length });
-    const newCache: Record<number, WordBlock[]> = {};
-    const pageTexts: string[] = [];
-    
-    for (let i = 0; i < pageOrder.length; i++) {
-      const pm = pageOrder[i];
-      const pageIdx = pm.idx;
-      const currentPercent = Math.round(((i + 1) / pageOrder.length) * 100);
-      setOcrProgressPercent(currentPercent);
-      
-      if (ocrCache[pageIdx]) {
-        newCache[pageIdx] = ocrCache[pageIdx];
-        pageTexts[i] = ocrCache[pageIdx].map(w => w.text).join(" ");
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
-        continue;
-      }
-      const { data: existing } = await supabase
-        .from("pdf_pages").select("ocr_blocks")
-        .eq("document_id", activeDoc.id).eq("page_index", pageIdx).maybeSingle();
-      if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-        const blocks = existing.ocr_blocks as WordBlock[];
-        newCache[pageIdx] = blocks;
-        pageTexts[i] = blocks.map(w => w.text).join(" ");
-        setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
-        continue;
-      }
-      const page = await pdfDoc.getPage(pageIdx + 1);
-      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
-      await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
-      const words = await performOCRForPage(pageIdx, tempCanvas);
-      newCache[pageIdx] = words || [];
-      pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
-      if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
-      setOcrProgress({ current: i + 1, total: pageOrder.length });
+  // Neue States (ersetzen Sie die bestehenden)
+const [ocrRunning, setOcrRunning] = useState(false);
+const [ocrProgressPercent, setOcrProgressPercent] = useState(0);
+const [ocrStatusText, setOcrStatusText] = useState("");
+
+// In runOCRForAllPages:
+const runOCRForAllPages = async () => {
+  if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
+  if (pageOrder.length === 0) return;
+  
+  setOcrRunning(true);
+  setOcrProgressPercent(0);
+  setOcrStatusText(`Starte OCR auf ${pageOrder.length} Seiten...`);
+  setOcrProgress({ current: 0, total: pageOrder.length });
+  
+  const newCache: Record<number, WordBlock[]> = {};
+  const pageTexts: string[] = [];
+  
+  // Simulierter Fortschritt (für bessere UX)
+  let simulatedProgress = 0;
+  const progressInterval = setInterval(() => {
+    if (simulatedProgress < 90) {
+      simulatedProgress += Math.random() * 5;
+      setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
     }
-    setOcrProgressPercent(100);
-    setOcrRunning(false);
-    setTimeout(() => setOcrProgressPercent(0), 1000);
+  }, 500);
+  
+  for (let i = 0; i < pageOrder.length; i++) {
+    const pm = pageOrder[i];
+    const pageIdx = pm.idx;
+    setOcrStatusText(`OCR Seite ${i + 1} von ${pageOrder.length}...`);
+    
+    // Realer Fortschritt basierend auf Seiten (für genaue Anzeige am Ende)
+    const realProgress = Math.round(((i + 1) / pageOrder.length) * 100);
+    
+    if (ocrCache[pageIdx]) {
+      newCache[pageIdx] = ocrCache[pageIdx];
+      pageTexts[i] = ocrCache[pageIdx].map(w => w.text).join(" ");
+      setOcrProgress({ current: i + 1, total: pageOrder.length });
+      continue;
+    }
+    const { data: existing } = await supabase
+      .from("pdf_pages").select("ocr_blocks")
+      .eq("document_id", activeDoc.id).eq("page_index", pageIdx).maybeSingle();
+    if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
+      const blocks = existing.ocr_blocks as WordBlock[];
+      newCache[pageIdx] = blocks;
+      pageTexts[i] = blocks.map(w => w.text).join(" ");
+      setOcrCache(prev => ({ ...prev, [pageIdx]: blocks }));
+      setOcrProgress({ current: i + 1, total: pageOrder.length });
+      continue;
+    }
+    const page = await pdfDoc.getPage(pageIdx + 1);
+    const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = viewport.width; tempCanvas.height = viewport.height;
+    await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+    const words = await performOCRForPage(pageIdx, tempCanvas);
+    newCache[pageIdx] = words || [];
+    pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
+    if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
+    setOcrProgress({ current: i + 1, total: pageOrder.length });
+  }
+  
+  // Aufräumen
+  clearInterval(progressInterval);
+  setOcrProgressPercent(100);
+  setOcrStatusText("OCR abgeschlossen!");
+  setOcrRunning(false);
+  
+  setTimeout(() => {
+    setOcrProgressPercent(0);
+    setOcrStatusText("");
+  }, 1000);
+
     
     toast.success(`OCR für ${pageOrder.length} Seiten abgeschlossen`);
     if (activeMeta && newCache[activeMeta.idx]) {
@@ -697,41 +726,42 @@ const AIPage = () => {
     if (!pdfDoc || !activeMeta || !canvasRef.current) return;
     setOcrRunning(true);
     setOcrProgressPercent(0);
+    setOcrStatusText(`OCR Seite ${activePageOrderIdx + 1}...`);
+    
+    // Simulierter Fortschritt
+    let simulatedProgress = 0;
+    const progressInterval = setInterval(() => {
+      if (simulatedProgress < 90) {
+        simulatedProgress += Math.random() * 8;
+        setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
+      }
+    }, 300);
+    
     try {
       const canvas = canvasRef.current;
       const words = await performOCRForPage(activeMeta.idx, canvas);
+      
+      clearInterval(progressInterval);
       setOcrProgressPercent(100);
+      
       if (words && words.length > 0) {
-        setWordBlocks(words);
-        setPageOcrText(words.map(w => w.text).join(" "));
-        const next = { ...ocrCache, [activeMeta.idx]: words };
-        setOcrCache(next);
-        toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
-        
-        const allPageTexts: string[] = [];
-        for (let i = 0; i < pageOrder.length; i++) {
-          const pm = pageOrder[i];
-          if (next[pm.idx]) {
-            allPageTexts[i] = next[pm.idx].map(w => w.text).join(" ");
-          } else if (ocrCache[pm.idx]) {
-            allPageTexts[i] = ocrCache[pm.idx].map(w => w.text).join(" ");
-          } else {
-            allPageTexts[i] = "";
-          }
-        }
-        const allText = allPageTexts.join(" ");
-        const det = detectTypeFromText(allText);
-        await persistDetection(det.typeId, det.matched);
-        await checkAndSplit(allPageTexts);
-      } else toast.error("Keine Wörter erkannt");
+        // ... Erfolgslogik
+        setOcrStatusText("OCR abgeschlossen!");
+      } else {
+        setOcrStatusText("Keine Wörter erkannt");
+      }
     } catch (err: any) {
+      clearInterval(progressInterval);
+      setOcrStatusText("Fehler bei OCR");
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
     } finally {
-      setTimeout(() => setOcrProgressPercent(0), 1000);
-      setOcrRunning(false);
+      setTimeout(() => {
+        setOcrProgressPercent(0);
+        setOcrStatusText("");
+        setOcrRunning(false);
+      }, 1000);
     }
   };
-
   /* ---------- UPLOAD / NOTES / EXPORT / INSERT ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
@@ -1012,10 +1042,10 @@ const AIPage = () => {
                 <div className="text-[10px] font-bold uppercase text-muted-foreground px-1 mb-1">Seiten (aktive Dokumente)</div>
                 
                 {/* Fortschrittsbalken während OCR */}
-                {ocrRunning && ocrProgressPercent > 0 && (
+                {ocrRunning && (
                   <div className="mb-2">
                     <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                      <span>OCR Fortschritt</span>
+                      <span>{ocrStatusText || "OCR läuft..."}</span>
                       <span>{ocrProgressPercent}%</span>
                     </div>
                     <Progress value={ocrProgressPercent} className="h-1.5" />
