@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag, X } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -57,6 +57,7 @@ const AIPage = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const activeDoc = docs.find(d => d.id === activeDocId) || null;
   const pageOrder: PageMeta[] = activeDoc?.page_order || [];
@@ -79,7 +80,7 @@ const AIPage = () => {
   }, []);
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
-  // NEU: Funktion zum Aktualisieren des erkannten Dokuments im Textarea
+  // Funktion zum Aktualisieren des erkannten Dokuments im Textarea
   const updateDetectedInfoInNotes = async (type: DocType | null, matchedKw: string[]) => {
     if (!activeDoc) return;
     const keywordsLine = `Erkannte Schlagwörter: ${matchedKw.join(", ") || "Keine"}\n`;
@@ -105,14 +106,19 @@ const AIPage = () => {
     // Lade die Notizen des Dokuments (inkl. vorhandener Erkennung)
     setNotes(d.notes || "");
   };
-  const releaseDoc = async () => {
-    if (!activeDoc) return;
+  
+  const releaseDoc = async (docId: string, event?: React.MouseEvent) => {
+    if (event) {
+      event.stopPropagation(); // Verhindert, dass das Dropdown geschlossen wird
+    }
     await supabase.from("pdf_documents")
       .update({ checked_out_by: null, checked_out_at: null })
-      .eq("id", activeDoc.id);
+      .eq("id", docId);
     toast.success("Dokument zurückgelegt");
-    setActiveDocId(null);
-    setPdfDoc(null);
+    if (activeDocId === docId) {
+      setActiveDocId(null);
+      setPdfDoc(null);
+    }
     loadDocs();
   };
 
@@ -172,7 +178,6 @@ const AIPage = () => {
         const w = typeof item.width === "number" ? item.width : 0;
         const h = typeof item.height === "number" ? item.height : 0;
         if (w <= 0 || h <= 0) continue;
-        // Split text spans into individual words proportionally on width
         const words = str.split(/\s+/).filter((w: string) => w.length > 0);
         if (words.length === 0) continue;
         const totalChars = str.replace(/\s/g, "").length || 1;
@@ -215,7 +220,6 @@ const AIPage = () => {
         const text = (b?.text ?? "").toString().trim();
         const bbox = b?.bbox;
         if (!text || !bbox) continue;
-        // If model returned a multi-word string with one bbox, split proportionally as fallback.
         const words = text.split(/\s+/).filter(Boolean);
         if (words.length === 1) {
           out.push({ text: words[0], x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h });
@@ -293,7 +297,6 @@ const AIPage = () => {
       .update({ detected_type_id: typeId, matched_keywords: matched as any })
       .eq("id", activeDoc.id);
     
-    // NEU: Erkannten Typ und Schlagwörter im Textarea anzeigen
     const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
   };
@@ -339,7 +342,6 @@ const AIPage = () => {
       setWordBlocks(newCache[activeMeta.idx]);
       setPageOcrText(newCache[activeMeta.idx].map(w => w.text).join(" "));
     }
-    // Detect document type from all OCR text
     const allText = Object.values(newCache).flat().map(w => w.text).join(" ");
     const det = detectTypeFromText(allText);
     await persistDetection(det.typeId, det.matched);
@@ -564,19 +566,51 @@ const AIPage = () => {
           {/* ===== DOKUMENTE ===== */}
           <TabsContent value="dokumente" className="space-y-4 mt-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Select value={activeDocId || ""} onValueChange={selectDoc}>
-                <SelectTrigger className="w-48 sm:w-64 h-9 text-sm">
-                  <SelectValue placeholder="Historie / PDF wählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground">Keine Dokumente</div>}
-                  {docs.map(d => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name}{d.checked_out_by === userId ? " 🔒" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Custom Select mit eigenem Dropdown für Zurücklegen-Button */}
+              <div className="relative w-64 sm:w-80">
+                <button
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center justify-between w-full h-9 px-3 py-2 text-sm bg-background border border-input rounded-md shadow-sm hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="truncate">
+                    {activeDoc ? activeDoc.name : "Historie / PDF wählen"}
+                  </span>
+                  <ChevronUp className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+                {isDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-80 overflow-auto">
+                    {docs.length === 0 && (
+                      <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>
+                    )}
+                    {docs.map(d => (
+                      <div
+                        key={d.id}
+                        className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer group"
+                      >
+                        <span
+                          className="flex-1 text-sm truncate"
+                          onClick={() => {
+                            selectDoc(d.id);
+                            setIsDropdownOpen(false);
+                          }}
+                        >
+                          {d.name} {d.checked_out_by === userId ? "🔒" : ""}
+                        </span>
+                        {d.checked_out_by === userId && (
+                          <button
+                            onClick={(e) => releaseDoc(d.id, e)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                            title="Dokument zurücklegen"
+                          >
+                            <Undo2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
               <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} size="sm" className="h-9">
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
@@ -584,7 +618,7 @@ const AIPage = () => {
               </Button>
               {activeDoc && (
                 <>
-                  <Button variant="outline" size="sm" className="h-9" onClick={releaseDoc} title="Für andere User wieder freigeben">
+                  <Button variant="outline" size="sm" className="h-9" onClick={() => releaseDoc(activeDoc.id)}>
                     <Undo2 className="h-4 w-4 mr-1" />Zurücklegen
                   </Button>
                   <Button variant="outline" onClick={exportEdited} size="sm" className="h-9">
@@ -658,7 +692,7 @@ const AIPage = () => {
 
                 {/* MITTLERE SPALTE: Editor mit Dokumenttyp-Anzeige ÜBER dem Textarea */}
                 <Card className="p-4 flex flex-col">
-                  {/* NEU: Dokumenttyp-Anzeige über dem Textarea */}
+                  {/* Dokumenttyp-Anzeige über dem Textarea */}
                   <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
                     <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp</div>
                     <div className="flex items-center justify-between">
