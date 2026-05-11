@@ -588,7 +588,118 @@ const AIPage = () => {
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
   };
 
-  /* ---------- OCR FÜR ALLE SEITEN MIT FORTSCHRITT ---------- */
+  /* ---------- OCR FÜR EIN DOKUMENT (ALLE SEITEN) ---------- */
+  const runOCRForDocument = async (document: Doc, pdfDocument: any) => {
+    const order: PageMeta[] = document.page_order;
+    if (order.length === 0) return;
+    
+    setOcrRunning(true);
+    setOcrProgressPercent(0);
+    setOcrStatusText(`Starte OCR für ${document.name} (${order.length} Seiten)...`);
+    
+    const newCache: Record<number, WordBlock[]> = {};
+    const pageTexts: string[] = [];
+    
+    let simulatedProgress = 0;
+    const progressInterval = setInterval(() => {
+      if (simulatedProgress < 90) {
+        simulatedProgress += Math.random() * 5;
+        setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
+      }
+    }, 500);
+    
+    for (let i = 0; i < order.length; i++) {
+      const pm = order[i];
+      const pageIdx = pm.idx;
+      setOcrStatusText(`OCR Seite ${i + 1} von ${order.length} (${document.name})...`);
+      
+      const page = await pdfDocument.getPage(pageIdx + 1);
+      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = viewport.width;
+      tempCanvas.height = viewport.height;
+      await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+      
+      const words = await performOCRForPageForDoc(pageIdx, tempCanvas, document, pdfDocument);
+      newCache[pageIdx] = words || [];
+      pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
+      if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
+    }
+    
+    clearInterval(progressInterval);
+    setOcrProgressPercent(100);
+    setOcrStatusText("OCR abgeschlossen!");
+    setOcrRunning(false);
+    
+    setTimeout(() => {
+      setOcrProgressPercent(0);
+      setOcrStatusText("");
+    }, 1000);
+    
+    const allText = Object.values(newCache).flat().map(w => w.text).join(" ");
+    const det = detectTypeFromText(allText);
+    
+    // Persistiere erkannten Typ und Schlagwörter
+    setDocs(prev => prev.map(d => d.id === document.id ? { ...d, detected_type_id: det.typeId, matched_keywords: det.matched } : d));
+    await supabase.from("pdf_documents")
+      .update({ detected_type_id: det.typeId, matched_keywords: det.matched as any })
+      .eq("id", document.id);
+    
+    const detectedTypeObj = docTypes.find(t => t.id === det.typeId) || null;
+    await updateDetectedInfoInNotesForDoc(document, detectedTypeObj, det.matched);
+    
+    toast.success(`OCR für ${document.name} abgeschlossen - ${det.matched.length} Schlagwörter erkannt`);
+  };
+  
+  // Hilfsfunktion für OCR ohne activeDoc
+  const performOCRForPageForDoc = async (pageIndex: number, canvasElement: HTMLCanvasElement, document: Doc, pdfDocument: any): Promise<WordBlock[] | null> => {
+    try {
+      // Native PDF.js Extraktion
+      const page = await pdfDocument.getPage(pageIndex + 1);
+      const pm = document.page_order.find(p => p.idx === pageIndex);
+      const rotation = pm?.rotation || 0;
+      const viewport = page.getViewport({ scale: RENDER_SCALE, rotation });
+      const nativeWords = await extractExactWordBlocks(page, viewport, canvasElement.width, canvasElement.height);
+      
+      if (nativeWords && nativeWords.length > 0) {
+        await supabase.from("pdf_pages").upsert({
+          document_id: document.id, page_index: pageIndex,
+          ocr_text: nativeWords.map(w => w.text).join(" "), 
+          ocr_blocks: nativeWords as any,
+        }, { onConflict: "document_id,page_index" });
+        return nativeWords;
+      }
+      
+      // Fallback Server-OCR
+      const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
+      const serverWords = await runServerOCRForImage(imageDataUrl);
+      if (serverWords && serverWords.length > 0) {
+        await supabase.from("pdf_pages").upsert({
+          document_id: document.id, page_index: pageIndex,
+          ocr_text: serverWords.map(w => w.text).join(" "), 
+          ocr_blocks: serverWords as any,
+        }, { onConflict: "document_id,page_index" });
+        return serverWords;
+      }
+      
+      return [];
+    } catch (err) {
+      console.error(`OCR Fehler Seite ${pageIndex + 1}:`, err);
+      return null;
+    }
+  };
+  
+  const updateDetectedInfoInNotesForDoc = async (document: Doc, type: DocType | null, matchedKw: string[]) => {
+    const header = `=== Dokumenttyp: ${type?.name || "Kein Typ erkannt"} ===\n`;
+    const keywordsLine = `Erkannte Schlagwörter: ${matchedKw.join(", ") || "Keine"}\n`;
+    const separator = "=".repeat(40) + "\n\n";
+    
+    const newContent = header + keywordsLine + separator + (document.notes || "");
+    setNotes(newContent);
+    await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", document.id);
+  };
+
+  /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
   const runOCRForAllPages = async () => {
     if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
     if (pageOrder.length === 0) return;
@@ -601,7 +712,6 @@ const AIPage = () => {
     const newCache: Record<number, WordBlock[]> = {};
     const pageTexts: string[] = [];
     
-    // Simulierter Fortschritt (für bessere UX)
     let simulatedProgress = 0;
     const progressInterval = setInterval(() => {
       if (simulatedProgress < 90) {
@@ -644,7 +754,6 @@ const AIPage = () => {
       setOcrProgress({ current: i + 1, total: pageOrder.length });
     }
     
-    // Aufräumen
     clearInterval(progressInterval);
     setOcrProgressPercent(100);
     setOcrStatusText("OCR abgeschlossen!");
@@ -666,7 +775,7 @@ const AIPage = () => {
     await checkAndSplit(pageTexts);
   };
 
-  /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB (KEINE AUTOMATISCHE OCR) ---------- */
+  /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB ---------- */
   useEffect(() => {
     const run = async () => {
       if (!pdfDoc || !activeMeta || !canvasRef.current) return;
@@ -681,7 +790,6 @@ const AIPage = () => {
       setRenderedSize({ w: viewport.width, h: viewport.height });
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      // 1. Aus Cache laden (wenn bereits in dieser Session geladen)
       if (ocrCache[activeMeta.idx] && ocrCache[activeMeta.idx].length > 0) {
         const cached = ocrCache[activeMeta.idx];
         setWordBlocks(cached);
@@ -690,7 +798,6 @@ const AIPage = () => {
         return;
       }
       
-      // 2. Aus Datenbank laden (persistierte OCR-Ergebnisse)
       const { data: existing } = await supabase
         .from("pdf_pages")
         .select("ocr_blocks, ocr_text")
@@ -707,7 +814,6 @@ const AIPage = () => {
         return;
       }
       
-      // 3. Keine OCR-Daten vorhanden
       setOcrDebug({ response: null, error: null, source: "none" });
     };
     run();
@@ -719,7 +825,6 @@ const AIPage = () => {
     setOcrProgressPercent(0);
     setOcrStatusText(`OCR Seite ${activePageOrderIdx + 1}...`);
     
-    // Simulierter Fortschritt
     let simulatedProgress = 0;
     const progressInterval = setInterval(() => {
       if (simulatedProgress < 90) {
@@ -795,6 +900,26 @@ const AIPage = () => {
       toast.success("PDF hochgeladen");
       await loadDocs();
       setActiveDocId(data.id);
+      
+      // Automatische OCR nach Upload starten
+      setTimeout(async () => {
+        const newDoc = data as Doc;
+        const { data: storageData, error: storageError } = await supabase.storage.from("pdfs").download(path);
+        if (storageError) {
+          toast.error("Dokument konnte nicht für OCR geladen werden");
+          return;
+        }
+        const newBuf = await storageData.arrayBuffer();
+        const pdfDocForOCR = await pdfjsLib.getDocument({ data: newBuf }).promise;
+        await runOCRForDocument(newDoc, pdfDocForOCR);
+        
+        // Thumbnails neu laden
+        const { data: updatedDocs } = await supabase.from("pdf_documents").select("*").eq("id", data.id);
+        if (updatedDocs && updatedDocs.length > 0) {
+          setDocs(prev => prev.map(d => d.id === data.id ? { ...d, ...updatedDocs[0] } : d));
+        }
+      }, 500);
+      
     } catch (e: any) {
       toast.error(e.message || "Upload fehlgeschlagen");
     } finally { setUploading(false); }
