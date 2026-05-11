@@ -30,6 +30,7 @@ type WordBlock = { text: string; x: number; y: number; w: number; h: number };
 type DocType = { id: string; name: string; split_enabled?: boolean; split_regex?: string };
 type Keyword = { id: string; type_id: string; keyword: string };
 type SplitInfo = { pageIndex: number; match: string; position: number };
+type DocWithThumbs = Doc & { thumbnails?: Record<number, string> };
 
 const RENDER_SCALE = 1.4;
 
@@ -53,6 +54,7 @@ const AIPage = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [ocrCache, setOcrCache] = useState<Record<number, WordBlock[]>>({});
   const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
+  const [docsWithThumbs, setDocsWithThumbs] = useState<Record<string, Record<number, string>>>({});
 
   // Document types / Properties
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
@@ -76,7 +78,7 @@ const AIPage = () => {
   const activeMeta = pageOrder[activePageOrderIdx];
   const detectedType = useMemo(() => docTypes.find(t => t.id === activeDoc?.detected_type_id) || null, [docTypes, activeDoc?.detected_type_id]);
 
-  // Meine ausgecheckten Dokumente mit ihren Seiten-Thumbnails
+  // Meine ausgecheckten Dokumente
   const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
   const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
 
@@ -95,6 +97,37 @@ const AIPage = () => {
     setKeywords((k.data ?? []) as Keyword[]);
   }, []);
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
+
+  // Thumbnails für alle aktiven Dokumente laden
+  useEffect(() => {
+    const loadAllThumbnails = async () => {
+      if (!userId) return;
+      const newThumbs: Record<string, Record<number, string>> = {};
+      
+      for (const doc of myCheckedOutDocs) {
+        const { data, error } = await supabase.storage.from("pdfs").download(doc.storage_path);
+        if (error) continue;
+        const buf = await data.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        const out: Record<number, string> = {};
+        const order: PageMeta[] = doc.page_order;
+        for (let i = 0; i < Math.min(order.length, 1); i++) {
+          const pm = order[i];
+          try {
+            const page = await pdf.getPage(pm.idx + 1);
+            const vp = page.getViewport({ scale: 0.15, rotation: pm.rotation });
+            const c = document.createElement("canvas");
+            c.width = vp.width; c.height = vp.height;
+            await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
+            out[pm.idx] = c.toDataURL("image/jpeg", 0.5);
+          } catch (e) { /* ignore */ }
+        }
+        newThumbs[doc.id] = out;
+      }
+      setDocsWithThumbs(newThumbs);
+    };
+    loadAllThumbnails();
+  }, [myCheckedOutDocs, userId]);
 
   // Speichere Split-Einstellungen für einen Typ
   const saveTypeSplitSettings = async (typeId: string, splitEnabled: boolean, splitRegex: string) => {
@@ -263,28 +296,6 @@ const AIPage = () => {
       setPdfDoc(null);
     }
     loadDocs();
-  };
-
-  // Thumbnails für ein Dokument laden
-  const loadDocThumbnails = async (doc: Doc) => {
-    const { data, error } = await supabase.storage.from("pdfs").download(doc.storage_path);
-    if (error) return {};
-    const buf = await data.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    const out: Record<number, string> = {};
-    const order: PageMeta[] = doc.page_order;
-    for (let i = 0; i < Math.min(order.length, 3); i++) {
-      const pm = order[i];
-      try {
-        const page = await pdf.getPage(pm.idx + 1);
-        const vp = page.getViewport({ scale: 0.15, rotation: pm.rotation });
-        const c = document.createElement("canvas");
-        c.width = vp.width; c.height = vp.height;
-        await page.render({ canvasContext: c.getContext("2d")!, viewport: vp }).promise;
-        out[pm.idx] = c.toDataURL("image/jpeg", 0.5);
-      } catch (e) { /* ignore */ }
-    }
-    return out;
   };
 
   /* ---------- LOAD PDF ---------- */
@@ -859,20 +870,43 @@ const AIPage = () => {
               )}
             </div>
 
-            {!activeDoc ? (
-              // DREI SPALTEN MIT PLATZHALTERN (statt Upload-Ansicht)
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
-                {/* Linke Spalte - Seitenleiste mit aktiven Dokumenten (Platzhalter) */}
-                <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
-                  <div className="flex justify-between items-center px-1 mb-1">
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground">Meine aktiven Dokumente</div>
-                    <Button size="sm" variant="outline" disabled className="h-6 text-[10px] opacity-50">
-                      <Sparkles className="h-3 w-3 mr-1" />
+            {/* Drei Spalten - IMMER mit aktiven Dokumenten in der linken Spalte */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
+              {/* Linke Spalte - Meine aktiven Dokumente (immer sichtbar) */}
+              <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
+                <div className="flex justify-between items-center px-1 mb-1">
+                  <div className="text-[10px] font-bold uppercase text-muted-foreground">Meine aktiven Dokumente</div>
+                  {activeDoc && (
+                    <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
+                      {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
                       OCR alle
                     </Button>
+                  )}
+                </div>
+                
+                {/* Fortschrittsbalken während OCR */}
+                {ocrRunning && ocrProgressPercent > 0 && (
+                  <div className="mb-2">
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                      <span>OCR Fortschritt</span>
+                      <span>{ocrProgressPercent}%</span>
+                    </div>
+                    <Progress value={ocrProgressPercent} className="h-1.5" />
                   </div>
-                  
-                  {/* Platzhalter für aktive Dokumente */}
+                )}
+                
+                {splitInfo && activeDoc && (
+                  <div className="bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded text-xs">
+                    <div className="font-medium">Trennpunkt gefunden!</div>
+                    <div className="text-[10px] truncate">"{splitInfo.match}" auf Seite {splitInfo.pageIndex + 1}</div>
+                    <Button size="sm" className="mt-1 h-6 text-[10px]" onClick={() => performSplit(splitInfo)}>
+                      <Scissors className="h-3 w-3 mr-1" /> Jetzt trennen
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Liste aller aktiven Dokumente des Benutzers */}
+                {myCheckedOutDocs.length === 0 ? (
                   <div className="border rounded p-3 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
                     <p className="text-xs">Keine aktiven Dokumente</p>
@@ -886,161 +920,92 @@ const AIPage = () => {
                       PDF hochladen
                     </Button>
                   </div>
-                </Card>
+                ) : (
+                  myCheckedOutDocs.map(doc => {
+                    const isActive = activeDocId === doc.id;
+                    const docThumbs = docsWithThumbs[doc.id] || {};
+                    const firstThumb = Object.values(docThumbs)[0];
+                    
+                    return (
+                      <div 
+                        key={doc.id} 
+                        className={`border rounded p-2 cursor-pointer transition-all ${isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
+                        onClick={() => selectDoc(doc.id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          {firstThumb ? (
+                            <img src={firstThumb} alt="" className="w-8 h-10 object-contain rounded bg-muted" />
+                          ) : (
+                            <div className="w-8 h-10 bg-muted rounded flex items-center justify-center">
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium truncate">{doc.name}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {doc.detected_type_id ? docTypes.find(t => t.id === doc.detected_type_id)?.name || "Typ erkannt" : "Kein Typ"}
+                            </div>
+                          </div>
+                          {doc.checked_out_by === userId && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id); }}
+                              className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                              title="Dokument zurücklegen"
+                            >
+                              <Undo2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </Card>
 
-                {/* Mittlere Spalte - Editor (leer/disabled) */}
-                <Card className="p-4 flex flex-col">
-                  <div className="mb-3 p-2 bg-muted/50 rounded-lg border">
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground mb-0.5">Dokumenttyp</div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-base font-semibold text-muted-foreground">Nicht erkannt</span>
-                    </div>
+              {/* MITTLERE SPALTE - Editor */}
+              <Card className="p-4 flex flex-col">
+                <div className="mb-3 p-2 bg-muted/50 rounded-lg border">
+                  <div className="text-[10px] font-bold uppercase text-muted-foreground mb-0.5">Dokumenttyp</div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-semibold">
+                      {detectedType ? detectedType.name : (activeDoc ? "Nicht erkannt" : "Kein Dokument ausgewählt")}
+                    </span>
                   </div>
+                </div>
 
-                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                    <Input 
-                      placeholder="Kein Dokument ausgewählt" 
-                      className="h-7 text-sm border-0 px-1 flex-1 text-muted-foreground" 
-                      disabled
-                    />
-                    <Button disabled size="sm" className="h-7 text-xs opacity-50">
-                      <Sparkles className="h-3 w-3 mr-1" />
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <Input 
+                    value={activeDoc?.name || ""} 
+                    className="h-7 text-sm font-bold border-0 px-1 flex-1" 
+                    placeholder="Kein Dokument ausgewählt"
+                    disabled={!activeDoc}
+                    onChange={async e => {
+                      if (!activeDoc) return;
+                      setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
+                      await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
+                    }} 
+                  />
+                  <div className="flex gap-1">
+                    <Button onClick={runOCRCurrentPage} disabled={ocrRunning || !activeDoc} size="sm" className="h-7 text-xs">
+                      {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
                       Seite OCR
                     </Button>
                   </div>
-                  <Textarea 
-                    className="flex-1 min-h-[200px] sm:min-h-[250px] md:min-h-[300px] font-mono text-sm" 
-                    placeholder="Wählen Sie ein Dokument aus, um OCR durchzuführen..."
-                    disabled
-                    value=""
-                  />
-                  <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
-                </Card>
+                </div>
+                <Textarea 
+                  ref={textareaRef} 
+                  value={notes} 
+                  onChange={e => saveNotes(e.target.value)} 
+                  className="flex-1 min-h-[200px] sm:min-h-[250px] md:min-h-[300px] font-mono text-sm" 
+                  placeholder={activeDoc ? "Erkannter Text wird hier eingefügt..." : "Wählen Sie ein Dokument aus, um OCR durchzuführen..."}
+                  disabled={!activeDoc}
+                />
+                <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
+              </Card>
 
-                {/* Rechte Spalte - Vorschau (leer/disabled) */}
-                <Card className="p-2 overflow-auto bg-muted/30 relative flex items-center justify-center min-h-[300px]">
-                  <div className="text-center text-muted-foreground">
-                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">Keine Vorschau verfügbar</p>
-                    <p className="text-xs mt-1">Wählen Sie ein Dokument aus der Liste aus</p>
-                  </div>
-                </Card>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[300px_1fr_1fr] gap-4">
-                {/* Seitenleiste - alle aktiven Dokumente mit ihren Thumbnails */}
-                <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
-                  <div className="flex justify-between items-center px-1 mb-1">
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground">Meine aktiven Dokumente</div>
-                    <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
-                      {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                      OCR alle
-                    </Button>
-                  </div>
-                  
-                  {/* Fortschrittsbalken während OCR */}
-                  {ocrRunning && ocrProgressPercent > 0 && (
-                    <div className="mb-2">
-                      <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                        <span>OCR Fortschritt</span>
-                        <span>{ocrProgressPercent}%</span>
-                      </div>
-                      <Progress value={ocrProgressPercent} className="h-1.5" />
-                    </div>
-                  )}
-                  
-                  {splitInfo && (
-                    <div className="bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded text-xs">
-                      <div className="font-medium">Trennpunkt gefunden!</div>
-                      <div className="text-[10px] truncate">"{splitInfo.match}" auf Seite {splitInfo.pageIndex + 1}</div>
-                      <Button size="sm" className="mt-1 h-6 text-[10px]" onClick={() => performSplit(splitInfo)}>
-                        <Scissors className="h-3 w-3 mr-1" /> Jetzt trennen
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {/* Thumbnails des aktuellen Dokuments */}
-                  <div className="border-b pb-2 mb-2">
-                    <div className="text-[10px] font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                      <FileText className="h-3 w-3" /> {activeDoc.name}
-                    </div>
-                    <div className="lg:hidden overflow-x-auto pb-1">
-                      <div className="flex flex-row gap-1.5">
-                        {pageOrder.map((pm, i) => (
-                          <div key={i} className={`shrink-0 w-14 rounded border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
-                            <div className="aspect-[4/5] bg-muted flex items-center justify-center">
-                              {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt="" className="w-full h-full object-contain" /> : <Loader2 className="h-3 w-3 animate-spin" />}
-                            </div>
-                            <div className="text-center text-[8px] font-medium bg-muted/50 py-0.5">{i + 1}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="hidden lg:grid grid-cols-2 gap-1.5">
-                      {pageOrder.map((pm, i) => (
-                        <div key={i} className={`relative rounded border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
-                          <div className="aspect-[4/5] bg-muted flex items-center justify-center">
-                            {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} alt="" className="w-full h-full object-contain" /> : <Loader2 className="h-3 w-3 animate-spin" />}
-                          </div>
-                          <div className="absolute top-0.5 left-0.5 bg-background/80 text-[8px] font-bold px-1 rounded">{i + 1}</div>
-                          <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
-                            <Button size="icon" variant="secondary" className="h-4 w-4" onClick={e => { e.stopPropagation(); movePage(i, -1); }} disabled={i === 0}><ChevronUp className="h-2 w-2" /></Button>
-                            <Button size="icon" variant="secondary" className="h-4 w-4" onClick={e => { e.stopPropagation(); movePage(i, 1); }} disabled={i === pageOrder.length - 1}><ChevronDown className="h-2 w-2" /></Button>
-                            <Button size="icon" variant="secondary" className="h-4 w-4" onClick={e => { e.stopPropagation(); rotatePage(i); }}><RotateCw className="h-2 w-2" /></Button>
-                            <Button size="icon" variant="destructive" className="h-4 w-4" onClick={e => { e.stopPropagation(); deletePage(i); }}><Trash2 className="h-2 w-2" /></Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {/* Weitere aktive Dokumente des Users */}
-                  {myCheckedOutDocs.filter(d => d.id !== activeDocId).length > 0 && (
-                    <>
-                      <div className="text-[10px] font-medium text-muted-foreground mt-2 mb-1 flex items-center gap-1">
-                        <FolderOpen className="h-3 w-3" /> Weitere Dokumente
-                      </div>
-                      {myCheckedOutDocs.filter(d => d.id !== activeDocId).map(doc => (
-                        <div key={doc.id} className="border rounded p-1.5 cursor-pointer hover:bg-muted/50" onClick={() => selectDoc(doc.id)}>
-                          <div className="text-xs font-medium truncate">{doc.name}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {doc.detected_type_id ? detectedType?.name || "Typ erkannt" : "Kein Typ"}
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </Card>
-
-                {/* MITTLERE SPALTE */}
-                <Card className="p-4 flex flex-col">
-                  <div className="mb-3 p-2 bg-muted/50 rounded-lg border">
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground mb-0.5">Dokumenttyp</div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-base font-semibold">
-                        {detectedType ? detectedType.name : "Nicht erkannt"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                    <Input value={activeDoc.name} className="h-7 text-sm font-bold border-0 px-1 flex-1" onChange={async e => {
-                      setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
-                      await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
-                    }} />
-                    <div className="flex gap-1">
-                      <Button onClick={runOCRCurrentPage} disabled={ocrRunning} size="sm" className="h-7 text-xs">
-                        {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                        Seite OCR
-                      </Button>
-                    </div>
-                  </div>
-                  <Textarea ref={textareaRef} value={notes} onChange={e => saveNotes(e.target.value)} className="flex-1 min-h-[200px] sm:min-h-[250px] md:min-h-[300px] font-mono text-sm" placeholder="Erkannter Text wird hier eingefügt..." />
-                  <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
-                </Card>
-
-                {/* Vorschau */}
-                <Card className="p-2 overflow-auto bg-muted/30 relative">
+              {/* RECHTE SPALTE - Vorschau */}
+              <Card className="p-2 overflow-auto bg-muted/30 relative flex items-center justify-center min-h-[300px]">
+                {activeDoc ? (
                   <div className="relative inline-block max-w-full">
                     <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
                     {wordBlocks.map((word, i) => (
@@ -1049,24 +1014,30 @@ const AIPage = () => {
                         style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} />
                     ))}
                   </div>
-                  {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && (
-                    <div className="mt-2 p-2 bg-muted rounded text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold">🔍 OCR Debug</span>
-                        <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-5 px-1">
-                          {showDebug ? "Weniger" : "Mehr"} <Bug className="h-2.5 w-2.5 ml-0.5" />
-                        </Button>
-                      </div>
-                      <div className="mt-0.5">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
-                      {ocrDebug.error && <div className="text-destructive mt-0.5">❌ {ocrDebug.error}</div>}
-                      {showDebug && ocrDebug.response && (
-                        <pre className="mt-1 overflow-auto max-h-40 bg-foreground text-background p-1.5 rounded text-[9px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
-                      )}
+                ) : (
+                  <div className="text-center text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">Keine Vorschau verfügbar</p>
+                    <p className="text-xs mt-1">Wählen Sie ein Dokument aus der Liste aus</p>
+                  </div>
+                )}
+                {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && activeDoc && (
+                  <div className="absolute bottom-2 left-2 right-2 mt-2 p-2 bg-muted rounded text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold">🔍 OCR Debug</span>
+                      <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-5 px-1">
+                        {showDebug ? "Weniger" : "Mehr"} <Bug className="h-2.5 w-2.5 ml-0.5" />
+                      </Button>
                     </div>
-                  )}
-                </Card>
-              </div>
-            )}
+                    <div className="mt-0.5">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
+                    {ocrDebug.error && <div className="text-destructive mt-0.5">❌ {ocrDebug.error}</div>}
+                    {showDebug && ocrDebug.response && (
+                      <pre className="mt-1 overflow-auto max-h-40 bg-foreground text-background p-1.5 rounded text-[9px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
+                    )}
+                  </div>
+                )}
+              </Card>
+            </div>
           </div>
         )}
 
