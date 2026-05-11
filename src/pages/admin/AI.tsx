@@ -79,6 +79,18 @@ const AIPage = () => {
   }, []);
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
+  // NEU: Funktion zum Aktualisieren des erkannten Dokuments im Textarea
+  const updateDetectedInfoInNotes = async (type: DocType | null, matchedKw: string[]) => {
+    if (!activeDoc) return;
+    const header = `=== Dokumenttyp: ${type?.name || "Kein Typ erkannt"} ===\n`;
+    const keywordsLine = `Erkannte Schlagwörter: ${matchedKw.join(", ") || "Keine"}\n`;
+    const separator = "=".repeat(40) + "\n\n";
+    
+    const newContent = header + keywordsLine + separator + (activeDoc.notes || "");
+    setNotes(newContent);
+    await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id);
+  };
+
   /* ---------- CHECKOUT / RELEASE ---------- */
   const selectDoc = async (id: string) => {
     setActiveDocId(id);
@@ -91,6 +103,8 @@ const AIPage = () => {
         .eq("id", id);
       setDocs(p => p.map(x => x.id === id ? { ...x, checked_out_by: userId } : x));
     }
+    // Lade die Notizen des Dokuments (inkl. vorhandener Erkennung)
+    setNotes(d.notes || "");
   };
   const releaseDoc = async () => {
     if (!activeDoc) return;
@@ -279,6 +293,10 @@ const AIPage = () => {
     await supabase.from("pdf_documents")
       .update({ detected_type_id: typeId, matched_keywords: matched as any })
       .eq("id", activeDoc.id);
+    
+    // NEU: Erkannten Typ und Schlagwörter im Textarea anzeigen
+    const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
+    await updateDetectedInfoInNotes(detectedTypeObj, matched);
   };
 
   /* ---------- OCR FÜR ALLE SEITEN ---------- */
@@ -601,6 +619,7 @@ const AIPage = () => {
                       OCR Fortschritt: {ocrProgress.current} / {ocrProgress.total}
                     </div>
                   )}
+                  {/* Mobile horizontale Scrollleiste */}
                   <div className="lg:hidden overflow-x-auto pb-2 -mx-1 px-1">
                     <div className="flex flex-row gap-2 snap-x snap-mandatory">
                       {pageOrder.map((pm, i) => (
@@ -619,6 +638,7 @@ const AIPage = () => {
                       ))}
                     </div>
                   </div>
+                  {/* Desktop vertikales Grid */}
                   <div className="hidden lg:grid grid-cols-1 gap-2 max-h-[calc(100vh-280px)] overflow-y-auto">
                     {pageOrder.map((pm, i) => (
                       <div key={i} className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${i === activePageOrderIdx ? "border-primary shadow-md" : "border-transparent hover:border-border"}`} onClick={() => setActivePageOrderIdx(i)}>
@@ -636,7 +656,7 @@ const AIPage = () => {
                     ))}
                   </div>
 
-                  {/* Erkannter Dokumenttyp + Schlagwörter */}
+                  {/* Erkannter Dokumenttyp + Schlagwörter (jetzt in der Seitenleiste als Info) */}
                   <div className="border-t pt-2 mt-2 space-y-1">
                     <div className="text-[10px] font-bold uppercase text-muted-foreground">Erkannter Dokumenttyp</div>
                     <div className="text-sm font-medium">
@@ -651,8 +671,28 @@ const AIPage = () => {
                   </div>
                 </Card>
 
-                {/* Editor */}
+                {/* MITTLERE SPALTE: Editor mit Dokumenttyp-Anzeige ÜBER dem Textarea */}
                 <Card className="p-4 flex flex-col">
+                  {/* NEU: Dokumenttyp-Anzeige über dem Textarea */}
+                  <div className="mb-3 p-3 bg-muted/50 rounded-lg border">
+                    <div className="text-xs font-bold uppercase text-muted-foreground mb-1">Dokumenttyp (automatisch erkannt)</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-semibold">
+                        {detectedType ? detectedType.name : "Nicht erkannt"}
+                      </span>
+                      {(activeDoc.matched_keywords || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {activeDoc.matched_keywords.slice(0, 3).map((k, i) => (
+                            <Badge key={i} variant="outline" className="text-[10px]">{k}</Badge>
+                          ))}
+                          {activeDoc.matched_keywords.length > 3 && (
+                            <Badge variant="outline" className="text-[10px]">+{activeDoc.matched_keywords.length - 3}</Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                     <Input value={activeDoc.name} className="h-8 text-sm font-bold border-0 px-1 flex-1" onChange={async e => {
                       setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
@@ -669,7 +709,7 @@ const AIPage = () => {
                   <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
                 </Card>
 
-                {/* Vorschau */}
+                {/* Vorschau mit Wort-Overlays */}
                 <Card className="p-3 overflow-auto bg-muted/30 relative">
                   <div className="relative inline-block max-w-full">
                     <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
