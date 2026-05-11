@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, MoveUp, MoveDown } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -80,6 +80,8 @@ const AIPage = () => {
 
   // Meine ausgecheckten Dokumente
   const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
+  // Andere Dokumente (nicht vom aktuellen User ausgecheckt)
+  const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
 
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
@@ -286,6 +288,20 @@ const AIPage = () => {
     }
   };
 
+  // Manuelle Trennung an aktueller Seite
+  const manualSplitAtCurrentPage = async () => {
+    if (!activeDoc) {
+      toast.error("Kein Dokument ausgewählt");
+      return;
+    }
+    const split: SplitInfo = {
+      pageIndex: activePageOrderIdx,
+      match: "manuell",
+      position: 0
+    };
+    await performSplit(split);
+  };
+
   // Prüfe nach OCR, ob getrennt werden soll
   const checkAndSplit = async (pagesText: string[]) => {
     const split = findSplitPoint(pagesText);
@@ -339,6 +355,48 @@ const AIPage = () => {
     run();
     return () => { cancelled = true; };
   }, [pdfDoc, pageOrder.length]);
+
+  /* ---------- SEITEN AKTIONEN ---------- */
+  const rotateCurrentPage = () => {
+    if (!activeDoc) return;
+    const next = pageOrder.map((p, idx) => idx === activePageOrderIdx ? { ...p, rotation: (p.rotation + 90) % 360 } : p);
+    persistOrder(next, activePageOrderIdx);
+  };
+  
+  const deleteCurrentPage = async () => {
+    if (!activeDoc || pageOrder.length <= 1) {
+      toast.error("Mindestens 1 Seite erforderlich");
+      return;
+    }
+    const next = pageOrder.filter((_, idx) => idx !== activePageOrderIdx);
+    const newIdx = Math.min(activePageOrderIdx, next.length - 1);
+    await persistOrder(next, newIdx);
+  };
+  
+  const movePageUp = () => {
+    if (activePageOrderIdx === 0) return;
+    const j = activePageOrderIdx - 1;
+    const next = [...pageOrder];
+    [next[activePageOrderIdx], next[j]] = [next[j], next[activePageOrderIdx]];
+    persistOrder(next, j);
+  };
+  
+  const movePageDown = () => {
+    if (activePageOrderIdx === pageOrder.length - 1) return;
+    const j = activePageOrderIdx + 1;
+    const next = [...pageOrder];
+    [next[activePageOrderIdx], next[j]] = [next[j], next[activePageOrderIdx]];
+    persistOrder(next, j);
+  };
+
+  const persistOrder = async (newOrder: PageMeta[], focusIdx?: number) => {
+    if (!activeDoc) return;
+    setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, page_order: newOrder } : d));
+    if (focusIdx !== undefined) setActivePageOrderIdx(Math.max(0, Math.min(focusIdx, newOrder.length - 1)));
+    await supabase.from("pdf_documents").update({ page_order: newOrder as any }).eq("id", activeDoc.id);
+    // Thumbnails neu laden
+    setThumbs({});
+  };
 
   /* ---------- NATIVE PDF.JS TEXTEXTRAKTION ---------- */
   const extractNativeWordBlocks = async (page: any, viewport: any, canvasWidth: number, canvasHeight: number): Promise<WordBlock[]> => {
@@ -625,7 +683,7 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- UPLOAD / SEITEN / NOTES / EXPORT / INSERT ---------- */
+  /* ---------- UPLOAD / NOTES / EXPORT / INSERT ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
     if (file.type !== "application/pdf") { toast.error("Nur PDF-Dateien"); return; }
@@ -650,24 +708,6 @@ const AIPage = () => {
     } finally { setUploading(false); }
   };
 
-  const persistOrder = async (newOrder: PageMeta[], focusIdx?: number) => {
-    if (!activeDoc) return;
-    setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, page_order: newOrder } : d));
-    if (focusIdx !== undefined) setActivePageOrderIdx(Math.max(0, Math.min(focusIdx, newOrder.length - 1)));
-    await supabase.from("pdf_documents").update({ page_order: newOrder as any }).eq("id", activeDoc.id);
-  };
-  const rotatePage = (i: number) => persistOrder(pageOrder.map((p, idx) => idx === i ? { ...p, rotation: (p.rotation + 90) % 360 } : p), i);
-  const deletePage = (i: number) => {
-    if (pageOrder.length <= 1) { toast.error("Mindestens 1 Seite erforderlich"); return; }
-    persistOrder(pageOrder.filter((_, idx) => idx !== i), Math.min(i, pageOrder.length - 2));
-  };
-  const movePage = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= pageOrder.length) return;
-    const next = [...pageOrder];
-    [next[i], next[j]] = [next[j], next[i]];
-    persistOrder(next, j);
-  };
   const saveNotes = async (v: string) => {
     setNotes(v);
     if (!activeDoc) return;
@@ -835,13 +875,20 @@ const AIPage = () => {
                         ))}
                       </>
                     )}
-                    {otherDocs.map(d => (
-                      <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
-                        <span className="flex-1 text-sm truncate" onClick={() => { selectDocAndPage(d.id, 0); setIsDropdownOpen(false); }}>
-                          {d.name}
-                        </span>
-                      </div>
-                    ))}
+                    {otherDocs.length > 0 && (
+                      <>
+                        <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-t border-b">
+                          Andere Dokumente
+                        </div>
+                        {otherDocs.map(d => (
+                          <div key={d.id} className="flex items-center justify-between px-3 py-2 hover:bg-accent cursor-pointer">
+                            <span className="flex-1 text-sm truncate" onClick={() => { selectDocAndPage(d.id, 0); setIsDropdownOpen(false); }}>
+                              {d.name}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -861,19 +908,43 @@ const AIPage = () => {
               )}
             </div>
 
-            {/* Drei Spalten - Seiten-Thumbnails als flache Liste mit Trenner */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_1fr] gap-4">
-              {/* Linke Spalte - Alle Seiten aller aktiven Dokumente als flache Liste */}
-              <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
-                <div className="flex justify-between items-center px-1 mb-1">
-                  <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten (aktive Dokumente)</div>
-                  {activeDoc && (
-                    <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
-                      {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                      OCR alle
-                    </Button>
-                  )}
+            {/* Navigationsleiste oberhalb der Spalten */}
+            {activeDoc && pageOrder.length > 0 && (
+              <Card className="p-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground mr-2">Seite {activePageOrderIdx + 1} / {pageOrder.length}</span>
+                  <div className="h-4 w-px bg-border mx-1" />
+                  <Button variant="ghost" size="sm" onClick={movePageUp} disabled={activePageOrderIdx === 0} className="h-7 px-2">
+                    <MoveUp className="h-3.5 w-3.5 mr-1" /> Nach oben
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={movePageDown} disabled={activePageOrderIdx === pageOrder.length - 1} className="h-7 px-2">
+                    <MoveDown className="h-3.5 w-3.5 mr-1" /> Nach unten
+                  </Button>
+                  <div className="h-4 w-px bg-border mx-1" />
+                  <Button variant="ghost" size="sm" onClick={rotateCurrentPage} className="h-7 px-2">
+                    <RotateCw className="h-3.5 w-3.5 mr-1" /> Drehen
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={deleteCurrentPage} className="h-7 px-2 text-destructive hover:text-destructive">
+                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Löschen
+                  </Button>
                 </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="sm" onClick={manualSplitAtCurrentPage} className="h-7 px-2">
+                    <Scissors className="h-3.5 w-3.5 mr-1" /> Hier trennen
+                  </Button>
+                  <Button variant="default" size="sm" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-7 px-2">
+                    {ocrRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                    OCR alle Seiten
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Drei Spalten - Seiten-Thumbnails als flache Liste mit Trenner (untereinander) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_1fr] gap-4">
+              {/* Linke Spalte - Alle Seiten aller aktiven Dokumente als flache Liste (untereinander) */}
+              <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
+                <div className="text-[10px] font-bold uppercase text-muted-foreground px-1 mb-1">Seiten (aktive Dokumente)</div>
                 
                 {/* Fortschrittsbalken während OCR */}
                 {ocrRunning && ocrProgressPercent > 0 && (
@@ -896,7 +967,7 @@ const AIPage = () => {
                   </div>
                 )}
                 
-                {/* Alle Seiten aller aktiven Dokumente als flache Liste mit Trenner */}
+                {/* Alle Seiten aller aktiven Dokumente als flache Liste (untereinander) */}
                 {myCheckedOutDocs.length === 0 ? (
                   <div className="border rounded p-3 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -934,8 +1005,8 @@ const AIPage = () => {
                           )}
                         </div>
                         
-                        {/* Seiten-Thumbnails als Grid */}
-                        <div className="grid grid-cols-3 gap-1.5 pl-1">
+                        {/* Seiten-Thumbnails als Liste (untereinander) */}
+                        <div className="space-y-1.5">
                           {doc.page_order.map((pm, pageIdx) => {
                             const thumb = docThumbs[pm.idx];
                             const isCurrentPage = isActive && activePageOrderIdx === pageIdx;
@@ -944,20 +1015,26 @@ const AIPage = () => {
                               <div
                                 key={`${doc.id}-${pageIdx}`}
                                 onClick={() => selectDocAndPage(doc.id, pageIdx)}
-                                className={`relative rounded border cursor-pointer transition-all overflow-hidden ${
-                                  isCurrentPage ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/50'
+                                className={`flex items-center gap-2 p-1 rounded cursor-pointer transition-all ${
+                                  isCurrentPage ? 'bg-primary/10 border border-primary' : 'hover:bg-muted/50 border border-transparent'
                                 }`}
                               >
-                                <div className="aspect-[3/4] bg-muted flex items-center justify-center">
+                                <div className="w-10 h-12 bg-muted rounded flex items-center justify-center overflow-hidden">
                                   {thumb ? (
-                                    <img src={thumb} alt={`${doc.name} Seite ${pageIdx + 1}`} className="w-full h-full object-contain" />
+                                    <img src={thumb} alt={`Seite ${pageIdx + 1}`} className="w-full h-full object-contain" />
                                   ) : (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    <FileText className="h-4 w-4 text-muted-foreground" />
                                   )}
                                 </div>
-                                <div className="absolute bottom-0 left-0 right-0 text-center text-[8px] font-medium bg-black/60 text-white py-0.5">
-                                  {pageIdx + 1}
+                                <div className="flex-1">
+                                  <div className="text-xs font-medium">Seite {pageIdx + 1}</div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {pm.rotation !== 0 ? `Gedreht (${pm.rotation}°)` : 'Normal'}
+                                  </div>
                                 </div>
+                                {isCurrentPage && (
+                                  <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
+                                )}
                               </div>
                             );
                           })}
