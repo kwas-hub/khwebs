@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag, X, FolderOpen, Settings } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Tag, X, FolderOpen, Settings, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -26,7 +26,7 @@ type Doc = {
 };
 type PageMeta = { idx: number; rotation: number };
 type WordBlock = { text: string; x: number; y: number; w: number; h: number };
-type DocType = { id: string; name: string; split_regex?: string; split_enabled?: boolean };
+type DocType = { id: string; name: string };
 type Keyword = { id: string; type_id: string; keyword: string };
 
 const RENDER_SCALE = 1.4;
@@ -54,13 +54,7 @@ const AIPage = () => {
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [newTypeName, setNewTypeName] = useState("");
-  const [newTypeSplitRegex, setNewTypeSplitRegex] = useState("");
-  const [newTypeSplitEnabled, setNewTypeSplitEnabled] = useState(false);
   const [newKeywordByType, setNewKeywordByType] = useState<Record<string, string>>({});
-  
-  // Global split settings
-  const [globalSplitEnabled, setGlobalSplitEnabled] = useState(false);
-  const [globalSplitRegex, setGlobalSplitRegex] = useState("");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -92,15 +86,6 @@ const AIPage = () => {
   }, []);
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
-  // Speichere Split-Einstellungen für einen Typ
-  const saveTypeSplitSettings = async (typeId: string, splitEnabled: boolean, splitRegex: string) => {
-    setDocTypes(p => p.map(t => t.id === typeId ? { ...t, split_enabled: splitEnabled, split_regex: splitRegex } : t));
-    await supabase.from("document_types").update({ 
-      split_enabled: splitEnabled, 
-      split_regex: splitRegex 
-    }).eq("id", typeId);
-  };
-
   // Funktion zum Aktualisieren des erkannten Dokuments im Textarea
   const updateDetectedInfoInNotes = async (type: DocType | null, matchedKw: string[]) => {
     if (!activeDoc) return;
@@ -110,42 +95,6 @@ const AIPage = () => {
     const newContent = keywordsLine + separator + (activeDoc.notes || "");
     setNotes(newContent);
     await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id);
-  };
-
-  // Prüfe ob ein Text die Trennkriterien erfüllt
-  const shouldSplitDocument = (text: string, detectedTypeId: string | null): boolean => {
-    // Prüfe globale Trennung
-    if (globalSplitEnabled && globalSplitRegex) {
-      try {
-        const regex = new RegExp(globalSplitRegex, 'i');
-        if (regex.test(text)) return true;
-      } catch (e) { console.warn("Invalid global regex", e); }
-    }
-    
-    // Prüfe typspezifische Trennung
-    if (detectedTypeId) {
-      const type = docTypes.find(t => t.id === detectedTypeId);
-      if (type?.split_enabled && type?.split_regex) {
-        try {
-          const regex = new RegExp(type.split_regex, 'i');
-          if (regex.test(text)) return true;
-        } catch (e) { console.warn("Invalid type regex", e); }
-      }
-    }
-    
-    return false;
-  };
-
-  // Trenne ein Dokument basierend auf OCR-Text
-  const splitDocument = async (originalDoc: Doc, text: string, splitPointMatch: RegExpMatchArray | null) => {
-    if (!splitPointMatch) return null;
-    
-    // Hier wird die Logik zum Trennen des Dokuments implementiert
-    // Dies würde das Original-PDF an der Stelle des Matches teilen
-    // und zwei neue Dokumente erstellen
-    console.log("Splitting document at:", splitPointMatch);
-    toast.info("Dokumententrennung wäre hier implementiert");
-    return null;
   };
 
   /* ---------- CHECKOUT / RELEASE ---------- */
@@ -372,12 +321,6 @@ const AIPage = () => {
     
     const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
-    
-    // Prüfe auf Dokumententrennung
-    const allText = Object.values(ocrCache).flat().map(w => w.text).join(" ");
-    if (shouldSplitDocument(allText, typeId)) {
-      await splitDocument(activeDoc, allText, null);
-    }
   };
 
   /* ---------- OCR FÜR ALLE SEITEN ---------- */
@@ -592,13 +535,9 @@ const AIPage = () => {
     const { data, error } = await supabase.from("document_types").insert({ 
       name, 
       created_by: userId,
-      split_enabled: newTypeSplitEnabled,
-      split_regex: newTypeSplitRegex || null
     }).select().single();
     if (error) { toast.error(error.message); return; }
     setNewTypeName("");
-    setNewTypeSplitRegex("");
-    setNewTypeSplitEnabled(false);
     setDocTypes(p => [...p, data as DocType].sort((a, b) => a.name.localeCompare(b.name)));
   };
   const renameType = async (id: string, name: string) => {
@@ -847,7 +786,6 @@ const AIPage = () => {
         {/* ===== EIGENSCHAFTEN ===== */}
         {tab === "eigenschaften" && (
           <div className="space-y-6 mt-4">
-            {/* Bereich 1: Dokumenttypen und Schlagwörter (2-spaltig) */}
             <Card className="p-4">
               <div className="flex gap-2 mb-4">
                 <div className="flex-1">
@@ -870,7 +808,6 @@ const AIPage = () => {
                   const kws = keywords.filter(k => k.type_id === t.id);
                   return (
                     <Card key={t.id} className="p-3 border">
-                      {/* Linke Spalte: Dokumenttyp */}
                       <div className="mb-3">
                         <div className="flex gap-2 items-center mb-2">
                           <Input 
@@ -886,7 +823,6 @@ const AIPage = () => {
                         <div className="text-[10px] text-muted-foreground mt-1">Regex wird automatisch erkannt</div>
                       </div>
                       
-                      {/* Rechte Spalte: Schlagwörter */}
                       <div className="border-t pt-2">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Schlagwörter (Regex)</div>
                         <div className="space-y-1 mb-2 max-h-32 overflow-y-auto">
@@ -918,64 +854,6 @@ const AIPage = () => {
                     </Card>
                   );
                 })}
-              </div>
-            </Card>
-
-            {/* Bereich 2: Trennung */}
-            <Card className="p-4">
-              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                 Dokumententrennung
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="globalSplit" 
-                    checked={globalSplitEnabled}
-                    onCheckedChange={(checked) => setGlobalSplitEnabled(checked as boolean)}
-                  />
-                  <Label htmlFor="globalSplit">Dokumente automatisch trennen (global)</Label>
-                </div>
-                {globalSplitEnabled && (
-                  <div className="ml-6">
-                    <Label htmlFor="globalSplitRegex" className="text-xs">Trenn-Regex (global)</Label>
-                    <Input
-                      id="globalSplitRegex"
-                      placeholder="z.B. ^--- Seite \d+ ---$ oder -----\\s*SEITE\\s*\\d+\\s*-----"
-                      value={globalSplitRegex}
-                      onChange={e => setGlobalSplitRegex(e.target.value)}
-                      className="mt-1 font-mono text-sm"
-                    />
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Der Regex wird im gesamten Dokument gesucht. Bei einem Match wird das Dokument getrennt.
-                    </p>
-                  </div>
-                )}
-              </div>
-              
-              <div className="mt-4 pt-3 border-t">
-                <div className="text-xs font-medium mb-2">Typspezifische Trennung</div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  {docTypes.map(t => (
-                    <div key={t.id} className="flex items-start gap-2 p-2 bg-muted/30 rounded-lg">
-                      <Checkbox 
-                        id={`split-${t.id}`}
-                        checked={t.split_enabled || false}
-                        onCheckedChange={(checked) => saveTypeSplitSettings(t.id, checked as boolean, t.split_regex || "")}
-                      />
-                      <div className="flex-1">
-                        <Label htmlFor={`split-${t.id}`} className="text-sm font-medium">{t.name}</Label>
-                        {t.split_enabled && (
-                          <Input
-                            placeholder="Trenn-Regex für diesen Typ"
-                            value={t.split_regex || ""}
-                            onChange={e => saveTypeSplitSettings(t.id, true, e.target.value)}
-                            className="mt-1 h-7 font-mono text-xs"
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             </Card>
           </div>
