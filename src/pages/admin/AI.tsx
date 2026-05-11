@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, MoveUp, MoveDown } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, MoveUp, MoveDown, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -33,6 +33,8 @@ type SplitInfo = { pageIndex: number; match: string; position: number };
 
 const RENDER_SCALE = 1.4;
 const PAGE_THUMB_SCALE = 0.15;
+const MIN_COL_WIDTH = 200;
+const MAX_COL_WIDTH = 500;
 
 const AIPage = () => {
   const { userId } = useAuth();
@@ -56,6 +58,12 @@ const AIPage = () => {
   const [splitInfo, setSplitInfo] = useState<SplitInfo | null>(null);
   const [allPagesThumbs, setAllPagesThumbs] = useState<Record<string, Record<number, string>>>({});
 
+  // Column widths for resizable layout
+  const [leftColWidth, setLeftColWidth] = useState(320);
+  const [middleColWidth, setMiddleColWidth] = useState(400);
+  const [rightColWidth, setRightColWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState<string | null>(null);
+
   // Document types / Properties
   const [docTypes, setDocTypes] = useState<DocType[]>([]);
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -73,6 +81,7 @@ const AIPage = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const activeDoc = docs.find(d => d.id === activeDocId) || null;
   const pageOrder: PageMeta[] = activeDoc?.page_order || [];
@@ -85,6 +94,58 @@ const AIPage = () => {
   const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
   // Andere Dokumente (nicht vom aktuellen User ausgecheckt)
   const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
+
+  /* ---------- RESIZABLE COLUMNS ---------- */
+  const handleMouseDown = (column: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(column);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !containerRef.current) return;
+      
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const totalWidth = containerRect.width;
+      
+      if (isResizing === 'left') {
+        const newWidth = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, e.clientX - containerRect.left));
+        const delta = newWidth - leftColWidth;
+        const newMiddle = Math.max(MIN_COL_WIDTH, middleColWidth - delta);
+        if (newMiddle >= MIN_COL_WIDTH) {
+          setLeftColWidth(newWidth);
+          setMiddleColWidth(newMiddle);
+        }
+      } else if (isResizing === 'middle') {
+        const leftEdge = containerRect.left + leftColWidth;
+        const newMiddleWidth = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, e.clientX - leftEdge));
+        const delta = newMiddleWidth - middleColWidth;
+        const newRight = Math.max(MIN_COL_WIDTH, rightColWidth - delta);
+        if (newRight >= MIN_COL_WIDTH) {
+          setMiddleColWidth(newMiddleWidth);
+          setRightColWidth(newRight);
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, leftColWidth, middleColWidth, rightColWidth]);
 
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
@@ -554,7 +615,7 @@ const AIPage = () => {
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
   };
 
-  /* ---------- OCR FÜR ALLE SEITEN ---------- */
+  /* ---------- OCR FÜR ALLE SEITEN MIT FORTSCHRITT ---------- */
   const runOCRForAllPages = async () => {
     if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
     if (pageOrder.length === 0) return;
@@ -567,7 +628,8 @@ const AIPage = () => {
     for (let i = 0; i < pageOrder.length; i++) {
       const pm = pageOrder[i];
       const pageIdx = pm.idx;
-      setOcrProgressPercent(Math.round((i / pageOrder.length) * 100));
+      const currentPercent = Math.round(((i + 1) / pageOrder.length) * 100);
+      setOcrProgressPercent(currentPercent);
       
       if (ocrCache[pageIdx]) {
         newCache[pageIdx] = ocrCache[pageIdx];
@@ -771,7 +833,7 @@ const AIPage = () => {
     }
   };
 
-  /* ---------- PROPERTIES (Eigenschaften) MANAGER - ZWEISPALTIG ---------- */
+  /* ---------- PROPERTIES (Eigenschaften) MANAGER ---------- */
   const addType = async () => {
     const name = newTypeName.trim();
     if (!name) return;
@@ -950,180 +1012,191 @@ const AIPage = () => {
               </Card>
             )}
 
-            {/* Drei Spalten - Seiten-Thumbnails als flache Liste mit Trenner (untereinander) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_1fr] gap-4">
-              {/* Linke Spalte - Alle Seiten aller aktiven Dokumente als flache Liste (untereinander) */}
-              <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
-                <div className="text-[10px] font-bold uppercase text-muted-foreground px-1 mb-1">Seiten (aktive Dokumente)</div>
-                
-                {/* Fortschrittsbalken während OCR */}
-                {ocrRunning && ocrProgressPercent > 0 && (
-                  <div className="mb-2">
-                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                      <span>OCR Fortschritt</span>
-                      <span>{ocrProgressPercent}%</span>
-                    </div>
-                    <Progress value={ocrProgressPercent} className="h-1.5" />
-                  </div>
-                )}
-                
-                {splitInfo && activeDoc && (
-                  <div className="bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded text-xs">
-                    <div className="font-medium">Trennpunkt gefunden!</div>
-                    <div className="text-[10px] truncate">"{splitInfo.match}" auf Seite {splitInfo.pageIndex + 1}</div>
-                    <Button size="sm" className="mt-1 h-6 text-[10px]" onClick={() => performSplit(splitInfo)}>
-                      <Scissors className="h-3 w-3 mr-1" /> Jetzt trennen
-                    </Button>
-                  </div>
-                )}
-                
-                {/* Alle Seiten aller aktiven Dokumente als flache Liste (untereinander) */}
-                {myCheckedOutDocs.length === 0 ? (
-                  <div className="border rounded p-3 text-center text-muted-foreground">
-                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-xs">Keine aktiven Dokumente</p>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      onClick={() => fileInputRef.current?.click()} 
-                      className="mt-2 h-7 text-xs"
-                    >
-                      <Upload className="h-3 w-3 mr-1" />
-                      PDF hochladen
-                    </Button>
-                  </div>
-                ) : (
-                  myCheckedOutDocs.map((doc) => {
-                    const docThumbs = allPagesThumbs[doc.id] || {};
-                    const isActive = activeDocId === doc.id;
-                    
-                    return (
-                      <div key={doc.id} className="space-y-2">
-                        {/* Trenner mit Dokumentnamen */}
-                        <div className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded flex items-center justify-between ${
-                          isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted/30'
-                        }`}>
-                          <span>{doc.name}</span>
-                          {doc.checked_out_by === userId && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id, e); }}
-                              className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                              title="Dokument zurücklegen"
-                            >
-                              <Undo2 className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                        
-                        {/* Seiten-Thumbnails als Liste (untereinander) */}
-                        <div className="space-y-1.5">
-                          {doc.page_order.map((pm, pageIdx) => {
-                            const thumb = docThumbs[pm.idx];
-                            const isCurrentPage = isActive && activePageOrderIdx === pageIdx;
-                            
-                            return (
-                              <div
-                                key={`${doc.id}-${pageIdx}`}
-                                onClick={() => selectDocAndPage(doc.id, pageIdx)}
-                                className={`flex items-center gap-2 p-1 rounded cursor-pointer transition-all ${
-                                  isCurrentPage ? 'bg-primary/10 border border-primary' : 'hover:bg-muted/50 border border-transparent'
-                                }`}
-                              >
-                                <div className="w-10 h-12 bg-muted rounded flex items-center justify-center overflow-hidden">
-                                  {thumb ? (
-                                    <img src={thumb} alt={`Seite ${pageIdx + 1}`} className="w-full h-full object-contain" />
-                                  ) : (
-                                    <FileText className="h-4 w-4 text-muted-foreground" />
-                                  )}
-                                </div>
-                                <div className="flex-1">
-                                  <div className="text-xs font-medium">Seite {pageIdx + 1}</div>
-                                  <div className="text-[10px] text-muted-foreground">
-                                    {pm.rotation !== 0 ? `Gedreht (${pm.rotation}°)` : 'Normal'}
-                                  </div>
-                                </div>
-                                {isCurrentPage && (
-                                  <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+            {/* RESIZABLE DREI SPALTEN */}
+            <div ref={containerRef} className="flex gap-2" style={{ minHeight: 'calc(100vh - 280px)' }}>
+              {/* Linke Spalte */}
+              <div style={{ width: leftColWidth, flexShrink: 0 }}>
+                <Card className="p-3 space-y-3 h-full overflow-y-auto">
+                  <div className="text-[10px] font-bold uppercase text-muted-foreground px-1 mb-1">Seiten (aktive Dokumente)</div>
+                  
+                  {/* Fortschrittsbalken während OCR */}
+                  {ocrRunning && ocrProgressPercent > 0 && (
+                    <div className="mb-2">
+                      <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                        <span>OCR Fortschritt</span>
+                        <span>{ocrProgressPercent}%</span>
                       </div>
-                    );
-                  })
-                )}
-              </Card>
-
-              {/* MITTLERE SPALTE - Editor */}
-              <Card className="p-4 flex flex-col">
-                <div className="mb-3 p-2 bg-muted/50 rounded-lg border">
-                  <div className="text-[10px] font-bold uppercase text-muted-foreground mb-0.5">Dokumenttyp</div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-base font-semibold">
-                      {detectedType ? detectedType.name : (activeDoc ? "Nicht erkannt" : "Kein Dokument ausgewählt")}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                  <Input 
-                    value={activeDoc?.name || ""} 
-                    className="h-7 text-sm font-bold border-0 px-1 flex-1" 
-                    placeholder="Kein Dokument ausgewählt"
-                    disabled={!activeDoc}
-                    onChange={async e => {
-                      if (!activeDoc) return;
-                      setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
-                      await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
-                    }} 
-                  />
-                </div>
-                <Textarea 
-                  ref={textareaRef} 
-                  value={notes} 
-                  onChange={e => saveNotes(e.target.value)} 
-                  className="flex-1 min-h-[200px] sm:min-h-[250px] md:min-h-[300px] font-mono text-sm" 
-                  placeholder={activeDoc ? "Erkannter Text wird hier eingefügt..." : "Wählen Sie ein Dokument aus, um OCR durchzuführen..."}
-                  disabled={!activeDoc}
-                />
-                <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
-              </Card>
-
-              {/* RECHTE SPALTE - Vorschau */}
-              <Card className="p-2 overflow-auto bg-muted/30 relative flex items-center justify-center min-h-[300px]">
-                {activeDoc ? (
-                  <div className="relative inline-block max-w-full">
-                    <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
-                    {wordBlocks.map((word, i) => (
-                      <button key={i} onClick={() => insertAtCursor(word.text)} title={word.text}
-                        className="absolute border border-blue-400/60 bg-blue-500/10 hover:bg-blue-500/30 transition-colors cursor-pointer rounded-sm"
-                        style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center text-muted-foreground">
-                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">Keine Vorschau verfügbar</p>
-                    <p className="text-xs mt-1">Wählen Sie ein Dokument aus der Liste aus</p>
-                  </div>
-                )}
-                {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && activeDoc && (
-                  <div className="absolute bottom-2 left-2 right-2 mt-2 p-2 bg-muted rounded text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold">🔍 OCR Debug</span>
-                      <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-5 px-1">
-                        {showDebug ? "Weniger" : "Mehr"} <Bug className="h-2.5 w-2.5 ml-0.5" />
+                      <Progress value={ocrProgressPercent} className="h-1.5" />
+                    </div>
+                  )}
+                  
+                  {splitInfo && activeDoc && (
+                    <div className="bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded text-xs">
+                      <div className="font-medium">Trennpunkt gefunden!</div>
+                      <div className="text-[10px] truncate">"{splitInfo.match}" auf Seite {splitInfo.pageIndex + 1}</div>
+                      <Button size="sm" className="mt-1 h-6 text-[10px]" onClick={() => performSplit(splitInfo)}>
+                        <Scissors className="h-3 w-3 mr-1" /> Jetzt trennen
                       </Button>
                     </div>
-                    <div className="mt-0.5">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
-                    {ocrDebug.error && <div className="text-destructive mt-0.5">❌ {ocrDebug.error}</div>}
-                    {showDebug && ocrDebug.response && (
-                      <pre className="mt-1 overflow-auto max-h-40 bg-foreground text-background p-1.5 rounded text-[9px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
-                    )}
+                  )}
+                  
+                  {myCheckedOutDocs.length === 0 ? (
+                    <div className="border rounded p-3 text-center text-muted-foreground">
+                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-xs">Keine aktiven Dokumente</p>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => fileInputRef.current?.click()} 
+                        className="mt-2 h-7 text-xs"
+                      >
+                        <Upload className="h-3 w-3 mr-1" />
+                        PDF hochladen
+                      </Button>
+                    </div>
+                  ) : (
+                    myCheckedOutDocs.map((doc) => {
+                      const docThumbs = allPagesThumbs[doc.id] || {};
+                      const isActive = activeDocId === doc.id;
+                      
+                      return (
+                        <div key={doc.id} className="space-y-2">
+                          <div className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded flex items-center justify-between ${
+                            isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted/30'
+                          }`}>
+                            <span>{doc.name}</span>
+                            {doc.checked_out_by === userId && (
+                              <button onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id, e); }} className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Dokument zurücklegen">
+                                <Undo2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-1.5">
+                            {doc.page_order.map((pm, pageIdx) => {
+                              const thumb = docThumbs[pm.idx];
+                              const isCurrentPage = isActive && activePageOrderIdx === pageIdx;
+                              
+                              return (
+                                <div
+                                  key={`${doc.id}-${pageIdx}`}
+                                  onClick={() => selectDocAndPage(doc.id, pageIdx)}
+                                  className={`flex items-center gap-2 p-1 rounded cursor-pointer transition-all ${
+                                    isCurrentPage ? 'bg-primary/10 border border-primary' : 'hover:bg-muted/50 border border-transparent'
+                                  }`}
+                                >
+                                  <div className="w-10 h-12 bg-muted rounded flex items-center justify-center overflow-hidden">
+                                    {thumb ? (
+                                      <img src={thumb} alt={`Seite ${pageIdx + 1}`} className="w-full h-full object-contain" />
+                                    ) : (
+                                      <FileText className="h-4 w-4 text-muted-foreground" />
+                                    )}
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-xs font-medium">Seite {pageIdx + 1}</div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {pm.rotation !== 0 ? `Gedreht (${pm.rotation}°)` : 'Normal'}
+                                    </div>
+                                  </div>
+                                  {isCurrentPage && (
+                                    <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </Card>
+              </div>
+
+              {/* Resize Handle 1 */}
+              <div
+                className="w-1 bg-border hover:bg-primary cursor-col-resize transition-colors rounded-full"
+                onMouseDown={(e) => handleMouseDown('left', e)}
+              />
+
+              {/* Mittlere Spalte */}
+              <div style={{ width: middleColWidth, flexShrink: 0 }}>
+                <Card className="p-4 flex flex-col h-full">
+                  <div className="mb-3 p-2 bg-muted/50 rounded-lg border">
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground mb-0.5">Dokumenttyp</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-semibold">
+                        {detectedType ? detectedType.name : (activeDoc ? "Nicht erkannt" : "Kein Dokument ausgewählt")}
+                      </span>
+                    </div>
                   </div>
-                )}
-              </Card>
+
+                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                    <Input 
+                      value={activeDoc?.name || ""} 
+                      className="h-7 text-sm font-bold border-0 px-1 flex-1" 
+                      placeholder="Kein Dokument ausgewählt"
+                      disabled={!activeDoc}
+                      onChange={async e => {
+                        if (!activeDoc) return;
+                        setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
+                        await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
+                      }} 
+                    />
+                  </div>
+                  <Textarea 
+                    ref={textareaRef} 
+                    value={notes} 
+                    onChange={e => saveNotes(e.target.value)} 
+                    className="flex-1 min-h-[200px] font-mono text-sm" 
+                    placeholder={activeDoc ? "Erkannter Text wird hier eingefügt..." : "Wählen Sie ein Dokument aus, um OCR durchzuführen..."}
+                    disabled={!activeDoc}
+                  />
+                  <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
+                </Card>
+              </div>
+
+              {/* Resize Handle 2 */}
+              <div
+                className="w-1 bg-border hover:bg-primary cursor-col-resize transition-colors rounded-full"
+                onMouseDown={(e) => handleMouseDown('middle', e)}
+              />
+
+              {/* Rechte Spalte */}
+              <div style={{ width: rightColWidth, flexShrink: 0 }}>
+                <Card className="p-2 overflow-auto bg-muted/30 relative flex items-center justify-center h-full">
+                  {activeDoc ? (
+                    <div className="relative inline-block max-w-full">
+                      <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
+                      {wordBlocks.map((word, i) => (
+                        <button key={i} onClick={() => insertAtCursor(word.text)} title={word.text}
+                          className="absolute border border-blue-400/60 bg-blue-500/10 hover:bg-blue-500/30 transition-colors cursor-pointer rounded-sm"
+                          style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center text-muted-foreground">
+                      <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">Keine Vorschau verfügbar</p>
+                      <p className="text-xs mt-1">Wählen Sie ein Dokument aus der Liste aus</p>
+                    </div>
+                  )}
+                  {(ocrDebug.response || ocrDebug.error || ocrDebug.source) && activeDoc && (
+                    <div className="absolute bottom-2 left-2 right-2 mt-2 p-2 bg-muted rounded text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold">🔍 OCR Debug</span>
+                        <Button variant="ghost" size="sm" onClick={() => setShowDebug(!showDebug)} className="h-5 px-1">
+                          {showDebug ? "Weniger" : "Mehr"} <Bug className="h-2.5 w-2.5 ml-0.5" />
+                        </Button>
+                      </div>
+                      <div className="mt-0.5">Quelle: <span className="font-mono">{ocrDebug.source || "?"}</span></div>
+                      {ocrDebug.error && <div className="text-destructive mt-0.5">❌ {ocrDebug.error}</div>}
+                      {showDebug && ocrDebug.response && (
+                        <pre className="mt-1 overflow-auto max-h-40 bg-foreground text-background p-1.5 rounded text-[9px]">{JSON.stringify(ocrDebug.response, null, 2)}</pre>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              </div>
             </div>
           </div>
         )}
@@ -1131,7 +1204,6 @@ const AIPage = () => {
         {/* ===== EIGENSCHAFTEN ===== */}
         {tab === "eigenschaften" && (
           <div className="space-y-4 mt-4">
-            {/* Neue Dokumenttyp erstellen */}
             <Card className="p-4">
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -1146,9 +1218,7 @@ const AIPage = () => {
               </div>
             </Card>
 
-            {/* Zweispaltiges Layout: Links Dokumenttypen, Rechts Schlagwörter */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Linke Spalte: Dokumenttypen */}
               <Card className="p-4">
                 <h3 className="text-sm font-semibold mb-3">Dokumenttypen</h3>
                 {docTypes.length === 0 && (
@@ -1187,7 +1257,6 @@ const AIPage = () => {
                 </div>
               </Card>
 
-              {/* Rechte Spalte: Schlagwörter des ausgewählten Dokumenttyps */}
               <Card className="p-4">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-sm font-semibold">
