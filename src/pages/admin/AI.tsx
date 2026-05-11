@@ -807,9 +807,10 @@ const AIPage = () => {
             {/* Drei Spalten - immer sichtbar */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_1fr] gap-4">
               {/* Linke Spalte - Meine aktiven Dokumente mit Seiten-Thumbnails */}
+              // Linke Spalte - Alle Seiten aller aktiven Dokumente als flache Liste
               <Card className="p-3 space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
                 <div className="flex justify-between items-center px-1 mb-1">
-                  <div className="text-[10px] font-bold uppercase text-muted-foreground">Meine aktiven Dokumente</div>
+                  <div className="text-[10px] font-bold uppercase text-muted-foreground">Seiten (aktive Dokumente)</div>
                   {activeDoc && (
                     <Button size="sm" variant="outline" onClick={runOCRForAllPages} disabled={ocrRunning} className="h-6 text-[10px]">
                       {ocrRunning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
@@ -839,7 +840,7 @@ const AIPage = () => {
                   </div>
                 )}
                 
-                {/* Liste aller aktiven Dokumente des Benutzers mit Seiten-Thumbnails */}
+                {/* Alle Seiten aller aktiven Dokumente als flache Liste */}
                 {myCheckedOutDocs.length === 0 ? (
                   <div className="border rounded p-3 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -855,81 +856,46 @@ const AIPage = () => {
                     </Button>
                   </div>
                 ) : (
-                  myCheckedOutDocs.map(doc => {
-                    const isActive = activeDocId === doc.id;
+                  myCheckedOutDocs.map((doc, docIndex) => {
                     const docThumbs = allDocsThumbs[doc.id] || {};
                     const pageCount = doc.page_order?.length || 0;
+                    const isActive = activeDocId === doc.id;
                     
                     return (
-                      <div 
-                        key={doc.id} 
-                        className={`border rounded-lg overflow-hidden transition-all ${isActive ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
-                      >
-                        {/* Dokument-Kopf */}
-                        <div 
-                          className="p-2 cursor-pointer"
-                          onClick={() => selectDoc(doc.id)}
-                        >
-                          <div className="flex items-center gap-2">
-                            {Object.values(docThumbs)[0] ? (
-                              <img src={Object.values(docThumbs)[0]} alt="" className="w-8 h-10 object-contain rounded bg-muted" />
-                            ) : (
-                              <div className="w-8 h-10 bg-muted rounded flex items-center justify-center">
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-medium truncate">{doc.name}</div>
-                              <div className="text-[10px] text-muted-foreground">
-                                {doc.detected_type_id ? docTypes.find(t => t.id === doc.detected_type_id)?.name || "Typ erkannt" : "Kein Typ"} • {pageCount} Seite{pageCount !== 1 ? 'n' : ''}
-                              </div>
-                            </div>
-                            {doc.checked_out_by === userId && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id); }}
-                                className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                                title="Dokument zurücklegen"
-                              >
-                                <Undo2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
+                      <div key={doc.id} className="space-y-1">
+                        {/* Trenner mit Dokumentnamen */}
+                        <div className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded ${isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted/30'}`}>
+                          {doc.name}
                         </div>
                         
-                        {/* Seiten-Thumbnails - nur für das aktive Dokument anzeigen */}
-                        {isActive && pageCount > 0 && (
-                          <div className="border-t bg-muted/20 p-2">
-                            <div className="text-[9px] font-medium text-muted-foreground mb-1.5">Seiten</div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {doc.page_order.map((pm, idx) => {
-                                const thumb = docThumbs[pm.idx];
-                                return (
-                                  <div
-                                    key={idx}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActivePageOrderIdx(idx);
-                                    }}
-                                    className={`relative w-12 rounded border cursor-pointer transition-all overflow-hidden ${
-                                      isActive && activePageOrderIdx === idx ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/50'
-                                    }`}
-                                  >
-                                    <div className="aspect-[3/4] bg-muted flex items-center justify-center">
-                                      {thumb ? (
-                                        <img src={thumb} alt={`Seite ${idx + 1}`} className="w-full h-full object-contain" />
-                                      ) : (
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                      )}
-                                    </div>
-                                    <div className="absolute bottom-0 left-0 right-0 text-center text-[7px] font-medium bg-black/50 text-white py-0.5">
-                                      {idx + 1}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
+                        {/* Seiten-Thumbnails als Grid */}
+                        <div className="grid grid-cols-3 gap-1.5 pl-1">
+                          {doc.page_order.map((pm, pageIdx) => {
+                            const thumb = docThumbs[pm.idx];
+                            const isCurrentPage = isActive && activePageOrderIdx === pageIdx;
+                            
+                            return (
+                              <div
+                                key={`${doc.id}-${pageIdx}`}
+                                onClick={() => selectDocAndPage(doc.id, pageIdx)}
+                                className={`relative rounded border cursor-pointer transition-all overflow-hidden ${
+                                  isCurrentPage ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/50'
+                                }`}
+                              >
+                                <div className="aspect-[3/4] bg-muted flex items-center justify-center">
+                                  {thumb ? (
+                                    <img src={thumb} alt={`${doc.name} Seite ${pageIdx + 1}`} className="w-full h-full object-contain" />
+                                  ) : (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  )}
+                                </div>
+                                <div className="absolute bottom-0 left-0 right-0 text-center text-[8px] font-medium bg-black/60 text-white py-0.5">
+                                  {pageIdx + 1}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })
