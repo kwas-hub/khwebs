@@ -19,7 +19,6 @@ import * as pdfjsLib from "pdfjs-dist";
 
 import { useTenant } from "@/contexts/TenantContext";
 
-
 // PDF.js Worker Konfiguration
 const pdfWorkerUrl = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -108,15 +107,17 @@ const AIPage = () => {
     const { data } = await supabase.from("pdf_documents").select("*").eq("tenant_id", currentTenant.id).order("created_at", { ascending: false });
     setDocs(((data ?? []) as any[]).map(d => ({ ...d, matched_keywords: d.matched_keywords ?? [] })) as Doc[]);
   }, [userId, currentTenant?.id]);
+  
   const loadTypes = useCallback(async () => {
     if (!currentTenant?.id) return;
     const [t, k] = await Promise.all([
       supabase.from("document_types").select("*").eq("tenant_id", currentTenant.id).order("name"),
-       supabase.from("document_type_keywords").select("*").eq("tenant_id", currentTenant.id).order("keyword"),
+      supabase.from("document_type_keywords").select("*").eq("tenant_id", currentTenant.id).order("keyword"),
     ]);
     setDocTypes((t.data ?? []) as DocType[]);
     setKeywords((k.data ?? []) as Keyword[]);
-  }, []);
+  }, [currentTenant?.id]);
+  
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
   // Thumbnails für alle Seiten aller aktiven Dokumente laden
@@ -181,7 +182,7 @@ const AIPage = () => {
     await supabase.from("pdf_documents")
       .update({ checked_out_by: null, checked_out_at: null })
       .eq("id", docId)
-      .eq("tenant_id", currentTenant.id);;
+      .eq("tenant_id", currentTenant.id);
     toast.success("Dokument zurückgelegt");
     if (activeDocId === docId) {
       setActiveDocId(null);
@@ -260,7 +261,7 @@ const AIPage = () => {
 
   // Führe die Dokumententrennung durch
   const performSplit = async (split: SplitInfo) => {
-    if (!activeDoc || !pdfDoc || !currentTenant?.id) return;  // ← NEU
+    if (!activeDoc || !pdfDoc || !currentTenant?.id) return;
   
     toast.loading(`Trenne Dokument an Seite ${split.pageIndex + 1}...`, { id: "split" });
     
@@ -287,7 +288,7 @@ const AIPage = () => {
         checked_out_at: new Date().toISOString(),
         detected_type_id: activeDoc.detected_type_id,
         matched_keywords: activeDoc.matched_keywords,
-        tenant_id: currentTenant.id,  // ← NEU
+        tenant_id: currentTenant.id,
       }).select().single();
       
       if (err1) throw err1;
@@ -302,12 +303,12 @@ const AIPage = () => {
         checked_out_at: new Date().toISOString(),
         detected_type_id: activeDoc.detected_type_id,
         matched_keywords: activeDoc.matched_keywords,
-        tenant_id: currentTenant.id,  // ← NEU
+        tenant_id: currentTenant.id,
       }).select().single();
       
       if (err2) throw err2;
       
-      await supabase.from("pdf_documents").delete().eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);  // ← NEU
+      await supabase.from("pdf_documents").delete().eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
       
       toast.success(`Dokument getrennt: "${newDoc1Name}" und "${newDoc2Name}"`, { id: "split" });
       
@@ -320,7 +321,6 @@ const AIPage = () => {
       toast.error(`Fehler beim Trennen: ${error.message}`, { id: "split" });
     }
   };
-
 
   // Manuelle Trennung an aktueller Seite
   const manualSplitAtCurrentPage = async () => {
@@ -463,7 +463,7 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR EINE SEITE (NUR SERVER OCR) ---------- */
   const performOCRForPage = async (pageIndex: number, canvasElement: HTMLCanvasElement): Promise<WordBlock[] | null> => {
-    if (!activeDoc || !currentTenant?.id) return null;  // ← NEU
+    if (!activeDoc || !currentTenant?.id) return null;
     try {
       const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
       const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
@@ -487,7 +487,7 @@ const AIPage = () => {
             page_index: pageIndex,
             ocr_text: words.map(w => w.text).join(" "), 
             ocr_blocks: words as any,
-            tenant_id: currentTenant.id,  // ← NEU
+            tenant_id: currentTenant.id,
           });
         
         if (insertError) console.warn("Insert error:", insertError);
@@ -545,7 +545,7 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR DOKUMENT (ALLE SEITEN) ---------- */
   const runOCRForDocument = async (document: Doc, pdfDocument: any) => {
-    if (!currentTenant?.id) return;  // ← NEU
+    if (!currentTenant?.id) return;
     const order: PageMeta[] = document.page_order;
     if (order.length === 0) return;
     
@@ -593,7 +593,7 @@ const AIPage = () => {
             document_id: document.id, page_index: pageIdx,
             ocr_text: words.map(w => w.text).join(" "), 
             ocr_blocks: words as any,
-            tenant_id: currentTenant.id,  // ← NEU
+            tenant_id: currentTenant.id,
           });
         } else {
           newCache[pageIdx] = [];
@@ -728,117 +728,6 @@ const AIPage = () => {
     const det = detectTypeFromText(allText);
     await persistDetection(det.typeId, det.matched);
     await checkAndSplit(pageTexts);
-  };
-
-  /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB ---------- */
-  useEffect(() => {
-    const run = async () => {
-      if (!pdfDoc || !activeMeta || !canvasRef.current) return;
-      setWordBlocks([]);
-      setPageOcrText("");
-      
-      try {
-        const page = await pdfDoc.getPage(activeMeta.idx + 1);
-        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d")!;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        setRenderedSize({ w: viewport.width, h: viewport.height });
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
-        if (ocrCache[activeMeta.idx] && ocrCache[activeMeta.idx].length > 0) {
-          const cached = ocrCache[activeMeta.idx];
-          setWordBlocks(cached);
-          setPageOcrText(cached.map(w => w.text).join(" "));
-          setOcrDebug({ response: null, error: null, source: "cache" });
-          return;
-        }
-        
-        const { data: existing } = await supabase
-          .from("pdf_pages")
-          .select("ocr_blocks, ocr_text")
-          .eq("document_id", activeDoc!.id)
-          .eq("page_index", activeMeta.idx)
-          .maybeSingle();
-          
-        if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
-          const blocks = existing.ocr_blocks as WordBlock[];
-          setWordBlocks(blocks);
-          setPageOcrText(existing.ocr_text || blocks.map(w => w.text).join(" "));
-          setOcrCache(prev => ({ ...prev, [activeMeta.idx]: blocks }));
-          setOcrDebug({ response: null, error: null, source: "database" });
-          return;
-        }
-        
-        setOcrDebug({ response: null, error: null, source: "none" });
-      } catch (err) {
-        console.error("Fehler beim Rendern der Seite:", err);
-        setOcrDebug({ response: null, error: err.message, source: "error" });
-      }
-    };
-    run();
-  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache]);
-
-  const runOCRCurrentPage = async () => {
-    if (!pdfDoc || !activeMeta || !canvasRef.current || !currentTenant?.id) return;
-    setOcrRunning(true);
-    setOcrProgressPercent(0);
-    setOcrStatusText(`OCR Seite ${activePageOrderIdx + 1}...`);
-    
-    let simulatedProgress = 0;
-    const progressInterval = setInterval(() => {
-      if (simulatedProgress < 90) {
-        simulatedProgress += Math.random() * 8;
-        setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
-      }
-    }, 300);
-    
-    try {
-      const canvas = canvasRef.current;
-      const words = await performOCRForPage(activeMeta.idx, canvas);
-      
-      clearInterval(progressInterval);
-      setOcrProgressPercent(100);
-      setOcrStatusText("OCR abgeschlossen!");
-      
-      if (words && words.length > 0) {
-        setWordBlocks(words);
-        setPageOcrText(words.map(w => w.text).join(" "));
-        const next = { ...ocrCache, [activeMeta.idx]: words };
-        setOcrCache(next);
-        toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
-        
-        const allPageTexts: string[] = [];
-        for (let i = 0; i < pageOrder.length; i++) {
-          const pm = pageOrder[i];
-          if (next[pm.idx]) {
-            allPageTexts[i] = next[pm.idx].map(w => w.text).join(" ");
-          } else if (ocrCache[pm.idx]) {
-            allPageTexts[i] = ocrCache[pm.idx].map(w => w.text).join(" ");
-          } else {
-            allPageTexts[i] = "";
-          }
-        }
-        const allText = allPageTexts.join(" ");
-        const det = detectTypeFromText(allText);
-        await persistDetection(det.typeId, det.matched);
-        await checkAndSplit(allPageTexts);
-      } else {
-        setOcrStatusText("Keine Wörter erkannt");
-        toast.error("Keine Wörter erkannt");
-      }
-    } catch (err: any) {
-      clearInterval(progressInterval);
-      setOcrStatusText("Fehler bei OCR");
-      toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
-    } finally {
-      setTimeout(() => {
-        setOcrProgressPercent(0);
-        setOcrStatusText("");
-        setOcrRunning(false);
-      }, 1000);
-    }
   };
 
   /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB ---------- */
@@ -1122,6 +1011,27 @@ const AIPage = () => {
 
   /* ---------- RENDER ---------- */
   if (!currentTenant) {
+    return (
+      <AdminLayout>
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+                <Sparkles className="h-6 w-6 sm:h-7 sm:w-7 text-primary" /> AI / OCR
+              </h1>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                PDFs hochladen, Seiten bearbeiten, einzelne Wörter übernehmen.
+              </p>
+            </div>
+          </div>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
     <AdminLayout>
       <div className="space-y-4">
@@ -1130,11 +1040,12 @@ const AIPage = () => {
             <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
               <Sparkles className="h-6 w-6 sm:h-7 sm:w-7 text-primary" /> AI / OCR
             </h1>
-             {currentTenant && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Mandant: <span className="font-medium">{currentTenant.name}</span>
-                </p>
-              )}
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              PDFs hochladen, Seiten bearbeiten, einzelne Wörter übernehmen.
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Mandant: <span className="font-medium">{currentTenant.name}</span>
+            </p>
           </div>
         </div>
 
@@ -1525,7 +1436,7 @@ const AIPage = () => {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
-                        ))
+                        ))}
                       )}
                     </div>
                     <div className="flex gap-2">
@@ -1607,7 +1518,6 @@ const AIPage = () => {
       </div>
     </AdminLayout>
   );
-  }
 };
 
 export default AIPage;
