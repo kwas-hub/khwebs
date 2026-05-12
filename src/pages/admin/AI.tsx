@@ -661,9 +661,10 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
   const runOCRForAllPages = async () => {
-    if (!pdfDoc || !activeDoc || !currentTenant?.id) 
+    if (!pdfDoc || !activeDoc || !currentTenant?.id) {
       toast.error("Kein PDF geladen oder kein Mandant");
       return;
+    }
     
     setOcrRunning(true);
     setOcrProgressPercent(0);
