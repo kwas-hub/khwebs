@@ -17,29 +17,33 @@ import { Plus, Trash2, Clock, CalendarDays, Link as LinkIcon, Mail } from "lucid
 import { FullCal } from "@/components/admin/FullCal";
 import { EmailTemplateEditor } from "@/components/admin/EmailTemplateEditor";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useTenant } from "@/contexts/TenantContext";
 
 const WEEKDAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
-type Slot = { id: string; weekday: number; start_time: string; end_time: string; slot_minutes: number; active: boolean };
+type Slot = { id: string; tenant_id: string; weekday: number; start_time: string; end_time: string; slot_minutes: number; active: boolean };
 type Appt = {
-  id: string; appointment_date: string; appointment_time: string; end_time: string | null;
+  id: string; tenant_id: string; appointment_date: string; appointment_time: string; end_time: string | null;
   title: string | null; salutation: string; first_name: string; last_name: string; phone: string;
   email: string; note: string | null; status: "pending" | "confirmed" | "cancelled";
   source: string; color: string; public_visible: boolean; assigned_user_id: string | null;
 };
-type ExtCal = { id: string; name: string; url: string; color: string; active: boolean; public_visible: boolean; assigned_user_id: string | null };
+type ExtCal = { id: string; tenant_id: string; name: string; url: string; color: string; active: boolean; public_visible: boolean; assigned_user_id: string | null };
 type Profile = { user_id: string; email: string; display_name: string };
+type SiteSettings = { id: string; tenant_id: string; booking_enabled: boolean };
 
-const emptyAppt = (): Partial<Appt> => ({
+const emptyAppt = (tenantId: string): Partial<Appt> => ({
   appointment_date: new Date().toISOString().slice(0, 10),
   appointment_time: "09:00", end_time: "09:30",
   title: "Eigener Termin", salutation: "", first_name: "", last_name: "",
   phone: "", email: "", note: "", status: "confirmed", source: "manual",
   color: "#0ea5b7", public_visible: false, assigned_user_id: null,
+  tenant_id: tenantId,
 });
 
 const Termine = () => {
   const { isAdmin, isEditor, isGuest } = useUserRole();
+  const { currentTenant, isTenantAdmin } = useTenant();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [appts, setAppts] = useState<Appt[]>([]);
   const [extCals, setExtCals] = useState<ExtCal[]>([]);
@@ -47,6 +51,7 @@ const Termine = () => {
   const [bookingEnabled, setBookingEnabled] = useState(true);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAppt, setEditingAppt] = useState<Partial<Appt> | null>(null);
@@ -54,55 +59,116 @@ const Termine = () => {
   const [editingCal, setEditingCal] = useState<Partial<ExtCal> | null>(null);
 
   const load = async () => {
-    const [s, a, st, ec, pr] = await Promise.all([
-      supabase.from("availability_slots").select("*").order("weekday").order("start_time"),
-      supabase.from("appointments").select("*").order("appointment_date").order("appointment_time"),
-      supabase.from("site_settings").select("*").limit(1).maybeSingle(),
-      supabase.from("external_calendars").select("*").order("name"),
-      supabase.from("profiles").select("user_id, email, display_name"),
-    ]);
-    if (s.data) setSlots(s.data as Slot[]);
-    if (a.data) setAppts(a.data as Appt[]);
-    if (st.data) { setBookingEnabled(st.data.booking_enabled); setSettingsId(st.data.id); }
-    if (ec.data) setExtCals(ec.data as ExtCal[]);
-    if (pr.data) setProfiles(pr.data as Profile[]);
+    if (!currentTenant?.id) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    
+    try {
+      // 🔑 Alle Abfragen mit tenant_id Filter
+      const [s, a, st, ec, pr] = await Promise.all([
+        supabase.from("availability_slots").select("*").eq("tenant_id", currentTenant.id).order("weekday").order("start_time"),
+        supabase.from("appointments").select("*").eq("tenant_id", currentTenant.id).order("appointment_date").order("appointment_time"),
+        supabase.from("site_settings").select("*").eq("tenant_id", currentTenant.id).maybeSingle(),
+        supabase.from("external_calendars").select("*").eq("tenant_id", currentTenant.id).order("name"),
+        supabase.from("profiles").select("user_id, email, display_name"),
+      ]);
+      
+      if (s.data) setSlots(s.data as Slot[]);
+      if (a.data) setAppts(a.data as Appt[]);
+      if (st.data) { 
+        setBookingEnabled(st.data.booking_enabled); 
+        setSettingsId(st.data.id); 
+      } else if (st.error && st.error.code === 'PGRST116') {
+        // Keine Einstellungen vorhanden -> erstellen
+        const { data: newSettings } = await supabase
+          .from("site_settings")
+          .insert({ tenant_id: currentTenant.id, booking_enabled: true })
+          .select()
+          .single();
+        if (newSettings) {
+          setBookingEnabled(true);
+          setSettingsId(newSettings.id);
+        }
+      }
+      if (ec.data) setExtCals(ec.data as ExtCal[]);
+      if (pr.data) setProfiles(pr.data as Profile[]);
+    } catch (err) {
+      console.error("Fehler beim Laden:", err);
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { load(); }, []);
+  
+  useEffect(() => { 
+    load(); 
+  }, [currentTenant?.id]);
 
   // ---------- Verfügbarkeit ----------
   const addSlot = async () => {
+    if (!currentTenant?.id) return;
     const { error } = await supabase.from("availability_slots").insert({
       weekday: 1, start_time: "09:00", end_time: "17:00", slot_minutes: 30, active: true,
+      tenant_id: currentTenant.id,
     });
     if (error) toast.error(error.message); else load();
   };
+  
   const updateSlot = async (id: string, patch: Partial<Slot>) => {
+    if (!currentTenant?.id) return;
     setSlots((p) => p.map((s) => s.id === id ? { ...s, ...patch } : s));
-    const { error } = await supabase.from("availability_slots").update(patch).eq("id", id);
+    const { error } = await supabase
+      .from("availability_slots")
+      .update(patch)
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message);
   };
+  
   const deleteSlot = async (id: string) => {
-    const { error } = await supabase.from("availability_slots").delete().eq("id", id);
+    if (!currentTenant?.id) return;
+    const { error } = await supabase
+      .from("availability_slots")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message); else load();
   };
+  
   const toggleBooking = async (v: boolean) => {
+    if (!currentTenant?.id || !settingsId) return;
     setBookingEnabled(v);
-    if (!settingsId) return;
-    const { error } = await supabase.from("site_settings").update({ booking_enabled: v }).eq("id", settingsId);
+    const { error } = await supabase
+      .from("site_settings")
+      .update({ booking_enabled: v })
+      .eq("id", settingsId)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message);
   };
 
   // ---------- Termine ----------
   const updateApptDetails = async (id: string, patch: Partial<Appt>) => {
+    if (!currentTenant?.id) return;
     setAppts((p) => p.map((a) => a.id === id ? { ...a, ...patch } : a));
-    const { error } = await supabase.from("appointments").update(patch).eq("id", id);
+    const { error } = await supabase
+      .from("appointments")
+      .update(patch)
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message);
   };
 
   const updateApptStatus = async (id: string, status: Appt["status"]) => {
+    if (!currentTenant?.id) return;
     const appt = appts.find((a) => a.id === id);
-    const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
+    const { error } = await supabase
+      .from("appointments")
+      .update({ status })
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) { toast.error(error.message); return; }
+    
     if (appt && (status === "confirmed" || status === "cancelled") && appt.email) {
       const triggerKey = status === "confirmed" ? "appointment_confirmed" : "appointment_cancelled";
       const niceDate = new Date(appt.appointment_date).toLocaleDateString("de-DE", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -131,19 +197,29 @@ const Termine = () => {
   };
 
   const deleteAppt = async (id: string) => {
+    if (!currentTenant?.id) return;
     if (!confirm("Termin wirklich löschen?")) return;
-    const { error } = await supabase.from("appointments").delete().eq("id", id);
+    const { error } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message); else load();
   };
 
   const saveAppt = async () => {
-    if (!editingAppt) return;
-    const payload: any = { ...editingAppt };
+    if (!editingAppt || !currentTenant?.id) return;
+    const payload: any = { ...editingAppt, tenant_id: currentTenant.id };
     delete payload.id;
     payload.appointment_time = payload.appointment_time?.length === 5 ? `${payload.appointment_time}:00` : payload.appointment_time;
     if (payload.end_time && payload.end_time.length === 5) payload.end_time = `${payload.end_time}:00`;
+    
     if (editingAppt.id) {
-      const { error } = await supabase.from("appointments").update(payload).eq("id", editingAppt.id);
+      const { error } = await supabase
+        .from("appointments")
+        .update(payload)
+        .eq("id", editingAppt.id)
+        .eq("tenant_id", currentTenant.id);
       if (error) return toast.error(error.message);
     } else {
       const { error } = await supabase.from("appointments").insert(payload);
@@ -155,17 +231,25 @@ const Termine = () => {
 
   // ---------- Externe Kalender ----------
   const saveExtCal = async () => {
-    if (!editingCal || !editingCal.name || !editingCal.url) {
+    if (!editingCal || !currentTenant?.id) return;
+    if (!editingCal.name || !editingCal.url) {
       toast.error("Name und URL erforderlich"); return;
     }
     const payload = {
-      name: editingCal.name, url: editingCal.url,
-      color: editingCal.color || "#7c3aed", active: editingCal.active ?? true,
+      tenant_id: currentTenant.id,
+      name: editingCal.name, 
+      url: editingCal.url,
+      color: editingCal.color || "#7c3aed", 
+      active: editingCal.active ?? true,
       public_visible: editingCal.public_visible ?? false,
       assigned_user_id: editingCal.assigned_user_id || null,
     };
     if (editingCal.id) {
-      const { error } = await supabase.from("external_calendars").update(payload).eq("id", editingCal.id);
+      const { error } = await supabase
+        .from("external_calendars")
+        .update(payload)
+        .eq("id", editingCal.id)
+        .eq("tenant_id", currentTenant.id);
       if (error) return toast.error(error.message);
     } else {
       const { error } = await supabase.from("external_calendars").insert(payload);
@@ -174,9 +258,15 @@ const Termine = () => {
     toast.success("Kalender gespeichert");
     setCalDialogOpen(false); setEditingCal(null); load();
   };
+  
   const deleteExtCal = async (id: string) => {
+    if (!currentTenant?.id) return;
     if (!confirm("Kalender wirklich löschen?")) return;
-    const { error } = await supabase.from("external_calendars").delete().eq("id", id);
+    const { error } = await supabase
+      .from("external_calendars")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message); else load();
   };
 
@@ -190,12 +280,48 @@ const Termine = () => {
     [extCals, isGuest]
   );
 
+  // Berechtigungen: Bearbeiten nur für Tenant-Admins oder globale Admins
+  const canEdit = isTenantAdmin || isAdmin;
+
+  // Kein Mandant ausgewählt
+  if (!currentTenant) {
+    return (
+      <AdminLayout>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Termine</h1>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // Ladezustand
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Termine</h1>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Lade Termine...</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
     <AdminLayout>
       <div className="space-y-6 text-foreground">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h1 className="text-3xl font-bold">Termine</h1>
-          {isEditor && (
+          <div>
+            <h1 className="text-3xl font-bold">Termine</h1>
+            <p className="text-sm text-muted-foreground">
+              Mandant: <span className="font-medium">{currentTenant.name}</span>
+            </p>
+          </div>
+          {canEdit && (
             <div className="flex items-center gap-2">
               <Switch checked={bookingEnabled} onCheckedChange={toggleBooking} />
               <Label>Buchung im Frontend {bookingEnabled ? "aktiv" : "ausgeblendet"}</Label>
@@ -206,9 +332,9 @@ const Termine = () => {
         <Tabs defaultValue="calendar" className="w-full">
           <TabsList className="bg-muted/50 border flex-wrap h-auto">
             <TabsTrigger value="calendar">Kalender</TabsTrigger>
-            {isEditor && <TabsTrigger value="list">Liste</TabsTrigger>}
-            {isEditor && <TabsTrigger value="availability">Verfügbarkeit</TabsTrigger>}
-            {isEditor && <TabsTrigger value="external">Externe Kalender</TabsTrigger>}
+            {canEdit && <TabsTrigger value="list">Liste</TabsTrigger>}
+            {canEdit && <TabsTrigger value="availability">Verfügbarkeit</TabsTrigger>}
+            {canEdit && <TabsTrigger value="external">Externe Kalender</TabsTrigger>}
             {isAdmin && <TabsTrigger value="emails">E-Mail-Vorlagen</TabsTrigger>}
           </TabsList>
 
@@ -225,8 +351,8 @@ const Termine = () => {
                   <SelectItem value="cancelled">Abgesagt</SelectItem>
                 </SelectContent>
               </Select>
-              {isEditor && (
-                <Button onClick={() => { setEditingAppt(emptyAppt()); setDialogOpen(true); }} size="sm">
+              {canEdit && (
+                <Button onClick={() => { setEditingAppt(emptyAppt(currentTenant.id)); setDialogOpen(true); }} size="sm">
                   <Plus className="mr-2 h-4 w-4" /> Termin erstellen
                 </Button>
               )}
@@ -246,7 +372,7 @@ const Termine = () => {
                 externalCalendars={visibleExtCals}
                 statusFilter={statusFilter}
                 onEventClick={(id) => {
-                  if (!isEditor) return;
+                  if (!canEdit) return;
                   const a = appts.find((x) => x.id === id);
                   if (a) {
                     setEditingAppt({ ...a, appointment_time: a.appointment_time.slice(0,5), end_time: a.end_time?.slice(0,5) || null });
@@ -254,8 +380,8 @@ const Termine = () => {
                   }
                 }}
                 onDateClick={(d) => {
-                  if (!isEditor) return;
-                  setEditingAppt({ ...emptyAppt(), appointment_date: d.toISOString().slice(0,10) });
+                  if (!canEdit) return;
+                  setEditingAppt({ ...emptyAppt(currentTenant.id), appointment_date: d.toISOString().slice(0,10) });
                   setDialogOpen(true);
                 }}
               />
@@ -263,7 +389,7 @@ const Termine = () => {
           </TabsContent>
 
           {/* ============= LISTE ============= */}
-          {isEditor && (
+          {canEdit && (
             <TabsContent value="list" className="space-y-4 mt-4">
               <div className="flex items-center gap-3">
                 <Label>Filter:</Label>
@@ -406,7 +532,7 @@ const Termine = () => {
           )}
 
           {/* ============= VERFÜGBARKEIT ============= */}
-          {isEditor && (
+          {canEdit && (
             <TabsContent value="availability" className="space-y-4 mt-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -453,14 +579,14 @@ const Termine = () => {
           )}
 
           {/* ============= EXTERNE KALENDER ============= */}
-          {isEditor && (
+          {canEdit && (
             <TabsContent value="external" className="space-y-4 mt-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <LinkIcon className="h-5 w-5 text-primary" />
                   <h3 className="font-bold">Externe Kalender (ICS-URL)</h3>
                 </div>
-                <Button onClick={() => { setEditingCal({ name: "", url: "", color: "#7c3aed", active: true, public_visible: false }); setCalDialogOpen(true); }} size="sm">
+                <Button onClick={() => { setEditingCal({ name: "", url: "", color: "#7c3aed", active: true, public_visible: false, tenant_id: currentTenant.id }); setCalDialogOpen(true); }} size="sm">
                   <Plus className="mr-2 h-4 w-4" /> Hinzufügen
                 </Button>
               </div>
