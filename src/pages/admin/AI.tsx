@@ -841,6 +841,117 @@ const AIPage = () => {
     }
   };
 
+  /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB ---------- */
+  useEffect(() => {
+    const run = async () => {
+      if (!pdfDoc || !activeMeta || !canvasRef.current) return;
+      setWordBlocks([]);
+      setPageOcrText("");
+      
+      try {
+        const page = await pdfDoc.getPage(activeMeta.idx + 1);
+        const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: activeMeta.rotation });
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d")!;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        setRenderedSize({ w: viewport.width, h: viewport.height });
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        if (ocrCache[activeMeta.idx] && ocrCache[activeMeta.idx].length > 0) {
+          const cached = ocrCache[activeMeta.idx];
+          setWordBlocks(cached);
+          setPageOcrText(cached.map(w => w.text).join(" "));
+          setOcrDebug({ response: null, error: null, source: "cache" });
+          return;
+        }
+        
+        const { data: existing } = await supabase
+          .from("pdf_pages")
+          .select("ocr_blocks, ocr_text")
+          .eq("document_id", activeDoc!.id)
+          .eq("page_index", activeMeta.idx)
+          .maybeSingle();
+          
+        if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
+          const blocks = existing.ocr_blocks as WordBlock[];
+          setWordBlocks(blocks);
+          setPageOcrText(existing.ocr_text || blocks.map(w => w.text).join(" "));
+          setOcrCache(prev => ({ ...prev, [activeMeta.idx]: blocks }));
+          setOcrDebug({ response: null, error: null, source: "database" });
+          return;
+        }
+        
+        setOcrDebug({ response: null, error: null, source: "none" });
+      } catch (err) {
+        console.error("Fehler beim Rendern der Seite:", err);
+        setOcrDebug({ response: null, error: err.message, source: "error" });
+      }
+    };
+    run();
+  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache]);
+
+  const runOCRCurrentPage = async () => {
+    if (!pdfDoc || !activeMeta || !canvasRef.current || !currentTenant?.id) return;
+    setOcrRunning(true);
+    setOcrProgressPercent(0);
+    setOcrStatusText(`OCR Seite ${activePageOrderIdx + 1}...`);
+    
+    let simulatedProgress = 0;
+    const progressInterval = setInterval(() => {
+      if (simulatedProgress < 90) {
+        simulatedProgress += Math.random() * 8;
+        setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
+      }
+    }, 300);
+    
+    try {
+      const canvas = canvasRef.current;
+      const words = await performOCRForPage(activeMeta.idx, canvas);
+      
+      clearInterval(progressInterval);
+      setOcrProgressPercent(100);
+      setOcrStatusText("OCR abgeschlossen!");
+      
+      if (words && words.length > 0) {
+        setWordBlocks(words);
+        setPageOcrText(words.map(w => w.text).join(" "));
+        const next = { ...ocrCache, [activeMeta.idx]: words };
+        setOcrCache(next);
+        toast.success(`${words.length} Wörter erkannt (Seite ${activePageOrderIdx + 1})`);
+        
+        const allPageTexts: string[] = [];
+        for (let i = 0; i < pageOrder.length; i++) {
+          const pm = pageOrder[i];
+          if (next[pm.idx]) {
+            allPageTexts[i] = next[pm.idx].map(w => w.text).join(" ");
+          } else if (ocrCache[pm.idx]) {
+            allPageTexts[i] = ocrCache[pm.idx].map(w => w.text).join(" ");
+          } else {
+            allPageTexts[i] = "";
+          }
+        }
+        const allText = allPageTexts.join(" ");
+        const det = detectTypeFromText(allText);
+        await persistDetection(det.typeId, det.matched);
+        await checkAndSplit(allPageTexts);
+      } else {
+        setOcrStatusText("Keine Wörter erkannt");
+        toast.error("Keine Wörter erkannt");
+      }
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      setOcrStatusText("Fehler bei OCR");
+      toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
+    } finally {
+      setTimeout(() => {
+        setOcrProgressPercent(0);
+        setOcrStatusText("");
+        setOcrRunning(false);
+      }, 1000);
+    }
+  };
+
   /* ---------- UPLOAD / NOTES / EXPORT / INSERT ---------- */
   const handleUpload = async (file: File) => {
     if (!userId) return;
