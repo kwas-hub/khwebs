@@ -105,7 +105,7 @@ const AIPage = () => {
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
     if (!userId || !currentTenant?.id) return;
-    const { data } = await supabase.from("pdf_documents").select("*")..eq("tenant_id", currentTenant.id).order("created_at", { ascending: false });
+    const { data } = await supabase.from("pdf_documents").select("*").eq("tenant_id", currentTenant.id).order("created_at", { ascending: false });
     setDocs(((data ?? []) as any[]).map(d => ({ ...d, matched_keywords: d.matched_keywords ?? [] })) as Doc[]);
   }, [userId, currentTenant?.id]);
   const loadTypes = useCallback(async () => {
@@ -661,7 +661,7 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
   const runOCRForAllPages = async () => {
-    if (!pdfDoc || !activeDoc || !currentTenant?.id) {
+    if (!pdfDoc || !activeDoc || !currentTenant?.id) 
       toast.error("Kein PDF geladen oder kein Mandant");
       return;
     
