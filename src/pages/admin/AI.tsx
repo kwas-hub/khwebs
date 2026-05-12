@@ -560,10 +560,10 @@ const AIPage = () => {
       try {
         const page = await pdfDocument.getPage(pageIdx + 1);
         const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-        const tempCanvas = document.createElement("canvas");
+        const tempCanvas = globalThis.document.createElement("canvas");
         tempCanvas.width = viewport.width;
         tempCanvas.height = viewport.height;
-        await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+        await page.render({ canvas: tempCanvas, canvasContext: tempCanvas.getContext("2d")!, viewport } as any).promise;
         
         const imageDataUrl = tempCanvas.toDataURL("image/jpeg", 0.85);
         const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
@@ -658,7 +658,7 @@ const AIPage = () => {
         const tempCanvas = document.createElement("canvas");
         tempCanvas.width = viewport.width;
         tempCanvas.height = viewport.height;
-        await page.render({ canvasContext: tempCanvas.getContext("2d")!, viewport }).promise;
+        await page.render({ canvas: tempCanvas, canvasContext: tempCanvas.getContext("2d")!, viewport } as any).promise;
         
         const words = await performOCRForPage(pageIdx, tempCanvas);
         tempCanvas.remove();
@@ -829,7 +829,7 @@ const AIPage = () => {
       
       // Automatische OCR nach Upload starten (verzögert)
       setTimeout(async () => {
-        const newDoc = data as Doc;
+        const newDoc = data as unknown as Doc;
         const { data: storageData, error: storageError } = await supabase.storage.from("pdfs").download(path);
         if (storageError) {
           toast.error("Dokument konnte nicht für OCR geladen werden");
@@ -841,7 +841,7 @@ const AIPage = () => {
         
         const { data: updatedDocs } = await supabase.from("pdf_documents").select("*").eq("id", data.id);
         if (updatedDocs && updatedDocs.length > 0) {
-          setDocs(prev => prev.map(d => d.id === data.id ? { ...d, ...updatedDocs[0] } : d));
+          setDocs(prev => prev.map(d => d.id === data.id ? { ...d, ...(updatedDocs[0] as unknown as Doc) } : d));
         }
       }, 500);
       
