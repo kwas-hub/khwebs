@@ -135,7 +135,7 @@ const AIPage = () => {
               const canvas = document.createElement("canvas");
               canvas.width = vp.width;
               canvas.height = vp.height;
-              await page.render({ canvasContext: canvas.getContext("2d")!, viewport: vp }).promise;
+              await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport: vp } as any).promise;
               out[pm.idx] = canvas.toDataURL("image/jpeg", 0.5);
               canvas.remove();
             } catch (e) { /* ignore */ }
