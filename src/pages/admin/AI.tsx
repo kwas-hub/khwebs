@@ -624,6 +624,26 @@ const AIPage = () => {
     }
     
     toast.success(`OCR für ${document.name} abgeschlossen - ${det.matched.length} Schlagwörter erkannt`);
+
+    // Auto-Export: prüfe konfigurierte Endpunkte für Ressource "documents"
+    try {
+      const { data: eps } = await supabase
+        .from("api_endpoints")
+        .select("id, filter_config")
+        .eq("resource", "documents")
+        .eq("enabled", true)
+        .eq("auto_export", true);
+      for (const ep of eps ?? []) {
+        const cfg: any = ep.filter_config || {};
+        const allowedTypes: string[] | undefined = cfg.document_type_ids;
+        if (allowedTypes && allowedTypes.length > 0 && !allowedTypes.includes(det.typeId ?? "")) continue;
+        await supabase.functions.invoke("export-record", {
+          body: { endpointId: ep.id, resource: "documents", recordId: document.id },
+        });
+      }
+    } catch (e) {
+      console.warn("Auto-Export fehlgeschlagen", e);
+    }
   };
 
   /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
