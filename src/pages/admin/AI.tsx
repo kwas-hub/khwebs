@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, MoveUp, MoveDown } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, FolderOpen, MoveUp, MoveDown, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -55,7 +55,6 @@ const AIPage = () => {
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrProgressPercent, setOcrProgressPercent] = useState(0);
   const [ocrStatusText, setOcrStatusText] = useState("");
-  const [ocrProgress, setOcrProgress] = useState({ current: 0, total: 0 });
   const [uploading, setUploading] = useState(false);
   const [renderedSize, setRenderedSize] = useState({ w: 0, h: 0 });
   const [ocrDebug, setOcrDebug] = useState<{ response: any; error: string | null; source: string }>({ response: null, error: null, source: "" });
@@ -77,11 +76,14 @@ const AIPage = () => {
   const [globalSplitEnabled, setGlobalSplitEnabled] = useState(false);
   const [globalSplitRegex, setGlobalSplitRegex] = useState("");
 
+  // Refs für Cleanup
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const pdfDocRef = useRef<any>(null);
+  const ocrAbortControllerRef = useRef<AbortController | null>(null);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const activeDoc = docs.find(d => d.id === activeDocId) || null;
   const pageOrder: PageMeta[] = activeDoc?.page_order || [];
@@ -90,10 +92,10 @@ const AIPage = () => {
   const selectedType = useMemo(() => docTypes.find(t => t.id === selectedTypeId) || null, [docTypes, selectedTypeId]);
   const selectedKeywords = useMemo(() => keywords.filter(k => k.type_id === selectedTypeId), [keywords, selectedTypeId]);
 
-  // Meine ausgecheckten Dokumente
-  const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId), [docs, userId]);
-  // Andere Dokumente (nicht vom aktuellen User ausgecheckt)
-  const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
+  // Meine ausgecheckten Dokumente (nur Current Tenant)
+  const myCheckedOutDocs = useMemo(() => docs.filter(d => d.checked_out_by === userId && d.tenant_id === currentTenant?.id), [docs, userId, currentTenant?.id]);
+  // Andere Dokumente (nicht vom aktuellen User ausgecheckt, gleicher Tenant)
+  const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId && d.tenant_id === currentTenant?.id), [docs, userId, currentTenant?.id]);
 
   // PDF Doc ref aktualisieren
   useEffect(() => {
@@ -102,40 +104,60 @@ const AIPage = () => {
 
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
-    if (!userId) return;
-    let query = supabase.from("pdf_documents").select("*").order("created_at", { ascending: false });
-    // Nur nach tenant_id filtern, wenn ein Mandant ausgewählt ist
-    if (currentTenant?.id) {
-      query = query.eq("tenant_id", currentTenant.id);
+    if (!userId || !currentTenant?.id) {
+      console.warn("Kein Tenant ausgewählt, lade keine Dokumente");
+      setDocs([]);
+      return;
     }
-    const { data } = await query;
+    
+    const { data, error } = await supabase
+      .from("pdf_documents")
+      .select("*")
+      .eq("tenant_id", currentTenant.id)
+      .order("created_at", { ascending: false });
+    
+    if (error) {
+      console.error("Fehler beim Laden der Dokumente:", error);
+      toast.error("Dokumente konnten nicht geladen werden");
+      return;
+    }
+    
     setDocs(((data ?? []) as any[]).map(d => ({ ...d, matched_keywords: d.matched_keywords ?? [] })) as Doc[]);
   }, [userId, currentTenant?.id]);
   
   const loadTypes = useCallback(async () => {
-    let typesQuery = supabase.from("document_types").select("*").order("name");
-    let keywordsQuery = supabase.from("document_type_keywords").select("*").order("keyword");
-    if (currentTenant?.id) {
-      typesQuery = typesQuery.eq("tenant_id", currentTenant.id);
-      keywordsQuery = keywordsQuery.eq("tenant_id", currentTenant.id);
+    if (!currentTenant?.id) {
+      setDocTypes([]);
+      setKeywords([]);
+      return;
     }
-    const [t, k] = await Promise.all([typesQuery, keywordsQuery]);
+    
+    const [t, k] = await Promise.all([
+      supabase.from("document_types").select("*").eq("tenant_id", currentTenant.id).order("name"),
+      supabase.from("document_type_keywords").select("*").eq("tenant_id", currentTenant.id).order("keyword")
+    ]);
+    
     setDocTypes((t.data ?? []) as DocType[]);
     setKeywords((k.data ?? []) as Keyword[]);
   }, [currentTenant?.id]);
   
-  useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
+  useEffect(() => { 
+    if (currentTenant?.id) {
+      loadDocs(); 
+      loadTypes();
+    }
+  }, [loadDocs, loadTypes, currentTenant?.id]);
 
   // Thumbnails für alle Seiten aller aktiven Dokumente laden
   useEffect(() => {
     const loadAllPageThumbnails = async () => {
-      if (!userId) return;
+      if (!userId || !currentTenant?.id) return;
       const newThumbs: Record<string, Record<number, string>> = {};
       
       for (const doc of myCheckedOutDocs) {
         try {
           const { data, error } = await supabase.storage.from("pdfs").download(doc.storage_path);
-          if (error) continue;
+          if (error || !data) continue;
           const buf = await data.arrayBuffer();
           const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
           const out: Record<number, string> = {};
@@ -160,20 +182,34 @@ const AIPage = () => {
       }
       setAllPagesThumbs(newThumbs);
     };
+    
     loadAllPageThumbnails();
-  }, [myCheckedOutDocs, userId]);
+  }, [myCheckedOutDocs, userId, currentTenant?.id]);
 
   // Funktion zum Auswählen eines Dokuments und einer bestimmten Seite
   const selectDocAndPage = async (docId: string, pageIdx: number) => {
+    if (!currentTenant?.id) {
+      toast.error("Kein Mandant ausgewählt");
+      return;
+    }
+    
     setActiveDocId(docId);
     setActivePageOrderIdx(pageIdx);
     if (!userId) return;
     const d = docs.find(x => x.id === docId);
     if (!d) return;
+    
+    // Prüfen ob Dokument zum aktuellen Tenant gehört
+    if (d.tenant_id !== currentTenant.id) {
+      toast.error("Sie haben keinen Zugriff auf dieses Dokument");
+      return;
+    }
+    
     if (d.checked_out_by !== userId) {
       await supabase.from("pdf_documents")
         .update({ checked_out_by: userId, checked_out_at: new Date().toISOString() })
-        .eq("id", docId);
+        .eq("id", docId)
+        .eq("tenant_id", currentTenant.id);
       setDocs(p => p.map(x => x.id === docId ? { ...x, checked_out_by: userId } : x));
     }
     setNotes(d.notes || "");
@@ -182,9 +218,12 @@ const AIPage = () => {
   
   const releaseDoc = async (docId: string, event?: React.MouseEvent) => {
     if (event) event.stopPropagation();
+    if (!currentTenant?.id) return;
+    
     await supabase.from("pdf_documents")
       .update({ checked_out_by: null, checked_out_at: null })
-      .eq("id", docId);
+      .eq("id", docId)
+      .eq("tenant_id", currentTenant.id);
     toast.success("Dokument zurückgelegt");
     if (activeDocId === docId) {
       setActiveDocId(null);
@@ -195,23 +234,26 @@ const AIPage = () => {
 
   // Speichere Split-Einstellungen für einen Typ
   const saveTypeSplitSettings = async (typeId: string, splitEnabled: boolean, splitRegex: string) => {
+    if (!currentTenant?.id) return;
+    
     setDocTypes(p => p.map(t => t.id === typeId ? { ...t, split_enabled: splitEnabled, split_regex: splitRegex } : t));
     await supabase.from("document_types").update({ 
       split_enabled: splitEnabled, 
       split_regex: splitRegex 
-    }).eq("id", typeId);
+    }).eq("id", typeId)
+      .eq("tenant_id", currentTenant.id);
   };
 
   // Funktion zum Aktualisieren des erkannten Dokuments im Textarea
   const updateDetectedInfoInNotes = async (type: DocType | null, matchedKw: string[]) => {
-    if (!activeDoc) return;
+    if (!activeDoc || !currentTenant?.id) return;
     const header = `=== Dokumenttyp: ${type?.name || "Kein Typ erkannt"} ===\n`;
     const keywordsLine = `Erkannte Schlagwörter: ${matchedKw.join(", ") || "Keine"}\n`;
     const separator = "=".repeat(40) + "\n\n";
     
     const newContent = header + keywordsLine + separator + (activeDoc.notes || "");
     setNotes(newContent);
-    await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id);
+    await supabase.from("pdf_documents").update({ notes: newContent }).eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
   };
 
   // Finde die Stelle, an der das Dokument getrennt werden soll
@@ -262,7 +304,7 @@ const AIPage = () => {
 
   // Führe die Dokumententrennung durch
   const performSplit = async (split: SplitInfo) => {
-    if (!activeDoc || !pdfDoc) return;
+    if (!activeDoc || !pdfDoc || !currentTenant?.id || !userId) return;
     
     toast.loading(`Trenne Dokument an Seite ${split.pageIndex + 1}...`, { id: "split" });
     
@@ -289,31 +331,27 @@ const AIPage = () => {
         checked_out_at: new Date().toISOString(),
         detected_type_id: activeDoc.detected_type_id,
         matched_keywords: activeDoc.matched_keywords,
+        tenant_id: currentTenant.id, // Immer setzen
       };
       
-      if (currentTenant?.id) {
-        (payload as any).tenant_id = currentTenant.id;
-      }
-      
-      const { data: newDoc1, error: err1 } = await supabase.from("pdf_documents").insert({
-        ...payload,
-        name: newDoc1Name,
-        page_order: firstPartPages as any,
-        notes: `Getrennt von ${activeDoc.name} (Teil 1)`,
-      }).select().single();
-      
+      const { data: newDoc1, error: err1 } = await supabase.from("pdf_documents").insert(payload).select().single();
       if (err1) throw err1;
       
-      const { data: newDoc2, error: err2 } = await supabase.from("pdf_documents").insert({
-        ...payload,
-        name: newDoc2Name,
-        page_order: secondPartPages as any,
-        notes: `Getrennt von ${activeDoc.name} (Teil 2)`,
-      }).select().single();
+      // Update mit korrekten Namen und Seiten
+      const { error: updateErr1 } = await supabase.from("pdf_documents")
+        .update({ name: newDoc1Name, page_order: firstPartPages, notes: `Getrennt von ${activeDoc.name} (Teil 1)` })
+        .eq("id", newDoc1.id);
+      if (updateErr1) throw updateErr1;
       
+      const { data: newDoc2, error: err2 } = await supabase.from("pdf_documents").insert(payload).select().single();
       if (err2) throw err2;
       
-      await supabase.from("pdf_documents").delete().eq("id", activeDoc.id);
+      const { error: updateErr2 } = await supabase.from("pdf_documents")
+        .update({ name: newDoc2Name, page_order: secondPartPages, notes: `Getrennt von ${activeDoc.name} (Teil 2)` })
+        .eq("id", newDoc2.id);
+      if (updateErr2) throw updateErr2;
+      
+      await supabase.from("pdf_documents").delete().eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
       
       toast.success(`Dokument getrennt: "${newDoc1Name}" und "${newDoc2Name}"`, { id: "split" });
       
@@ -356,14 +394,23 @@ const AIPage = () => {
   /* ---------- LOAD PDF ---------- */
   useEffect(() => {
     const run = async () => {
-      if (!activeDoc) { setPdfDoc(null); return; }
+      if (!activeDoc || !currentTenant?.id) { 
+        setPdfDoc(null); 
+        return; 
+      }
+      
       setNotes(activeDoc.notes || "");
       setActivePageOrderIdx(0);
       setThumbs({});
       setOcrCache({});
       setSplitInfo(null);
+      
       const { data, error } = await supabase.storage.from("pdfs").download(activeDoc.storage_path);
-      if (error) { toast.error("Download fehlgeschlagen"); return; }
+      if (error || !data) { 
+        toast.error("Download fehlgeschlagen"); 
+        return; 
+      }
+      
       const buf = await data.arrayBuffer();
       try {
         const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -374,12 +421,13 @@ const AIPage = () => {
       }
     };
     run();
-  }, [activeDoc?.id]);
+  }, [activeDoc?.id, currentTenant?.id]);
 
   /* ---------- THUMBNAILS für aktives Dokument (Detailansicht rechts) ---------- */
   useEffect(() => {
     if (!pdfDoc || pageOrder.length === 0 || !canvasRef.current) return;
     let cancelled = false;
+    
     const run = async () => {
       const out: Record<number, string> = {};
       for (const pm of pageOrder) {
@@ -404,13 +452,13 @@ const AIPage = () => {
 
   /* ---------- SEITEN AKTIONEN ---------- */
   const rotateCurrentPage = () => {
-    if (!activeDoc) return;
+    if (!activeDoc || !currentTenant?.id) return;
     const next = pageOrder.map((p, idx) => idx === activePageOrderIdx ? { ...p, rotation: (p.rotation + 90) % 360 } : p);
     persistOrder(next, activePageOrderIdx);
   };
   
   const deleteCurrentPage = async () => {
-    if (!activeDoc || pageOrder.length <= 1) {
+    if (!activeDoc || pageOrder.length <= 1 || !currentTenant?.id) {
       toast.error("Mindestens 1 Seite erforderlich");
       return;
     }
@@ -436,10 +484,10 @@ const AIPage = () => {
   };
 
   const persistOrder = async (newOrder: PageMeta[], focusIdx?: number) => {
-    if (!activeDoc) return;
+    if (!activeDoc || !currentTenant?.id) return;
     setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, page_order: newOrder } : d));
     if (focusIdx !== undefined) setActivePageOrderIdx(Math.max(0, Math.min(focusIdx, newOrder.length - 1)));
-    await supabase.from("pdf_documents").update({ page_order: newOrder as any }).eq("id", activeDoc.id);
+    await supabase.from("pdf_documents").update({ page_order: newOrder as any }).eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
     setThumbs({});
   };
 
@@ -468,13 +516,15 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR EINE SEITE (NUR SERVER OCR) ---------- */
   const performOCRForPage = async (pageIndex: number, canvasElement: HTMLCanvasElement): Promise<WordBlock[] | null> => {
+    if (!activeDoc || !currentTenant?.id) return null;
+    
     try {
       const imageDataUrl = canvasElement.toDataURL("image/jpeg", 0.85);
       const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
       if (error) throw error;
       
       const words = convertServerOCRToWordBlocks(data, canvasElement.width, canvasElement.height);
-      if (words && words.length > 0 && activeDoc) {
+      if (words && words.length > 0) {
         // In DB speichern
         const { error: deleteError } = await supabase
           .from("pdf_pages")
@@ -489,11 +539,8 @@ const AIPage = () => {
           page_index: pageIndex,
           ocr_text: words.map(w => w.text).join(" "), 
           ocr_blocks: words as any,
+          tenant_id: currentTenant.id,
         };
-        
-        if (currentTenant?.id) {
-          insertPayload.tenant_id = currentTenant.id;
-        }
         
         const { error: insertError } = await supabase
           .from("pdf_pages")
@@ -542,11 +589,12 @@ const AIPage = () => {
   };
   
   const persistDetection = async (typeId: string | null, matched: string[]) => {
-    if (!activeDoc) return;
+    if (!activeDoc || !currentTenant?.id) return;
     setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, detected_type_id: typeId, matched_keywords: matched } : d));
     await supabase.from("pdf_documents")
       .update({ detected_type_id: typeId, matched_keywords: matched as any })
-      .eq("id", activeDoc.id);
+      .eq("id", activeDoc.id)
+      .eq("tenant_id", currentTenant.id);
     
     const detectedTypeObj = docTypes.find(t => t.id === typeId) || null;
     await updateDetectedInfoInNotes(detectedTypeObj, matched);
@@ -554,6 +602,8 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR DOKUMENT (ALLE SEITEN) ---------- */
   const runOCRForDocument = async (document: Doc, pdfDocument: any) => {
+    if (!currentTenant?.id) return;
+    
     const order: PageMeta[] = document.page_order;
     if (order.length === 0) return;
     
@@ -564,35 +614,43 @@ const AIPage = () => {
     const newCache: Record<number, WordBlock[]> = {};
     const pageTexts: string[] = [];
     
+    // Vorherigen OCR abbrechen
+    if (ocrAbortControllerRef.current) {
+      ocrAbortControllerRef.current.abort();
+    }
+    ocrAbortControllerRef.current = new AbortController();
+    
     let simulatedProgress = 0;
-    const progressInterval = setInterval(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+    progressIntervalRef.current = setInterval(() => {
       if (simulatedProgress < 90) {
         simulatedProgress += Math.random() * 5;
         setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
       }
     }, 500);
     
-    // Temporär activeDoc setzen
-    const originalActiveDoc = activeDoc;
-    // @ts-ignore - Workaround
-    window.__tempActiveDoc = document;
-    
     for (let i = 0; i < order.length; i++) {
+      if (ocrAbortControllerRef.current?.signal.aborted) {
+        break;
+      }
+      
       const pm = order[i];
       const pageIdx = pm.idx;
       setOcrStatusText(`OCR Seite ${i + 1} von ${order.length} (${document.name})...`);
       
+      let tempCanvas: HTMLCanvasElement | null = null;
       try {
         const page = await pdfDocument.getPage(pageIdx + 1);
         const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-        const tempCanvas = globalThis.document.createElement("canvas");
+        tempCanvas = document.createElement("canvas");
         tempCanvas.width = viewport.width;
         tempCanvas.height = viewport.height;
         await page.render({ canvas: tempCanvas, canvasContext: tempCanvas.getContext("2d")!, viewport } as any).promise;
         
         const imageDataUrl = tempCanvas.toDataURL("image/jpeg", 0.85);
         const { data, error } = await supabase.functions.invoke("pdf-ocr", { body: { imageDataUrl } });
-        tempCanvas.remove();
         
         if (error) throw error;
         
@@ -607,8 +665,8 @@ const AIPage = () => {
             document_id: document.id, page_index: pageIdx,
             ocr_text: words.map(w => w.text).join(" "), 
             ocr_blocks: words as any,
+            tenant_id: currentTenant.id,
           };
-          if (currentTenant?.id) insertPayload.tenant_id = currentTenant.id;
           
           await supabase.from("pdf_pages").insert(insertPayload);
         } else {
@@ -619,10 +677,16 @@ const AIPage = () => {
         console.error(`Fehler bei Seite ${pageIdx + 1}:`, err);
         newCache[pageIdx] = [];
         pageTexts[i] = "";
+      } finally {
+        if (tempCanvas) tempCanvas.remove();
       }
     }
     
-    clearInterval(progressInterval);
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    
     setOcrProgressPercent(100);
     setOcrStatusText("OCR abgeschlossen!");
     setOcrRunning(false);
@@ -639,7 +703,8 @@ const AIPage = () => {
     setDocs(prev => prev.map(d => d.id === document.id ? { ...d, detected_type_id: det.typeId, matched_keywords: det.matched } : d));
     await supabase.from("pdf_documents")
       .update({ detected_type_id: det.typeId, matched_keywords: det.matched as any })
-      .eq("id", document.id);
+      .eq("id", document.id)
+      .eq("tenant_id", currentTenant.id);
     
     const detectedTypeObj = docTypes.find(t => t.id === det.typeId) || null;
     
@@ -649,7 +714,7 @@ const AIPage = () => {
       const keywordsLine = `Erkannte Schlagwörter: ${det.matched.join(", ") || "Keine"}\n`;
       const separator = "=".repeat(40) + "\n\n";
       setNotes(header + keywordsLine + separator + (document.notes || ""));
-      await supabase.from("pdf_documents").update({ notes: header + keywordsLine + separator + (document.notes || "") }).eq("id", document.id);
+      await supabase.from("pdf_documents").update({ notes: header + keywordsLine + separator + (document.notes || "") }).eq("id", document.id).eq("tenant_id", currentTenant.id);
     }
     
     toast.success(`OCR für ${document.name} abgeschlossen - ${det.matched.length} Schlagwörter erkannt`);
@@ -661,7 +726,9 @@ const AIPage = () => {
         .select("id, filter_config")
         .eq("resource", "documents")
         .eq("enabled", true)
-        .eq("auto_export", true);
+        .eq("auto_export", true)
+        .eq("tenant_id", currentTenant.id);
+        
       for (const ep of eps ?? []) {
         const cfg: any = ep.filter_config || {};
         const allowedTypes: string[] | undefined = cfg.document_type_ids;
@@ -677,53 +744,74 @@ const AIPage = () => {
 
   /* ---------- OCR FÜR ALLE SEITEN (aktuelles Dokument) ---------- */
   const runOCRForAllPages = async () => {
-    if (!pdfDoc || !activeDoc) { toast.error("Kein PDF geladen"); return; }
+    if (!pdfDoc || !activeDoc || !currentTenant?.id) { 
+      toast.error("Kein PDF geladen oder kein Mandant"); 
+      return; 
+    }
     if (pageOrder.length === 0) return;
     
     setOcrRunning(true);
     setOcrProgressPercent(0);
     setOcrStatusText(`Starte OCR auf ${pageOrder.length} Seiten...`);
-    setOcrProgress({ current: 0, total: pageOrder.length });
     
     const newCache: Record<number, WordBlock[]> = {};
     const pageTexts: string[] = [];
     
+    // Vorherigen OCR abbrechen
+    if (ocrAbortControllerRef.current) {
+      ocrAbortControllerRef.current.abort();
+    }
+    ocrAbortControllerRef.current = new AbortController();
+    
     let simulatedProgress = 0;
-    const progressInterval = setInterval(() => {
-      if (simulatedProgress < 90) {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+    progressIntervalRef.current = setInterval(() => {
+      if (simulatedProgress < 90 && !ocrAbortControllerRef.current?.signal.aborted) {
         simulatedProgress += Math.random() * 5;
         setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
       }
     }, 500);
     
     for (let i = 0; i < pageOrder.length; i++) {
+      if (ocrAbortControllerRef.current?.signal.aborted) {
+        toast.info("OCR wurde abgebrochen");
+        break;
+      }
+      
       const pm = pageOrder[i];
       const pageIdx = pm.idx;
       setOcrStatusText(`OCR Seite ${i + 1} von ${pageOrder.length}...`);
       
+      let tempCanvas: HTMLCanvasElement | null = null;
       try {
         const page = await pdfDoc.getPage(pageIdx + 1);
         const viewport = page.getViewport({ scale: RENDER_SCALE, rotation: pm.rotation });
-        const tempCanvas = document.createElement("canvas");
+        tempCanvas = document.createElement("canvas");
         tempCanvas.width = viewport.width;
         tempCanvas.height = viewport.height;
         await page.render({ canvas: tempCanvas, canvasContext: tempCanvas.getContext("2d")!, viewport } as any).promise;
         
         const words = await performOCRForPage(pageIdx, tempCanvas);
-        tempCanvas.remove();
         
         newCache[pageIdx] = words || [];
         pageTexts[i] = words ? words.map(w => w.text).join(" ") : "";
         if (words) setOcrCache(prev => ({ ...prev, [pageIdx]: words }));
-        setOcrProgress({ current: i + 1, total: pageOrder.length });
       } catch (err) {
         console.error(`Fehler bei Seite ${pageIdx + 1}:`, err);
         newCache[pageIdx] = [];
         pageTexts[i] = "";
+      } finally {
+        if (tempCanvas) tempCanvas.remove();
       }
     }
     
-    clearInterval(progressInterval);
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    
     setOcrProgressPercent(100);
     setOcrStatusText("OCR abgeschlossen!");
     setOcrRunning(false);
@@ -747,7 +835,7 @@ const AIPage = () => {
   /* ---------- SEITE RENDERN + LADEN AUS CACHE/DB ---------- */
   useEffect(() => {
     const run = async () => {
-      if (!pdfDoc || !activeMeta || !canvasRef.current) return;
+      if (!pdfDoc || !activeMeta || !canvasRef.current || !activeDoc || !currentTenant?.id) return;
       setWordBlocks([]);
       setPageOcrText("");
       
@@ -772,8 +860,9 @@ const AIPage = () => {
         const { data: existing } = await supabase
           .from("pdf_pages")
           .select("ocr_blocks, ocr_text")
-          .eq("document_id", activeDoc!.id)
+          .eq("document_id", activeDoc.id)
           .eq("page_index", activeMeta.idx)
+          .eq("tenant_id", currentTenant.id)
           .maybeSingle();
           
         if (existing && existing.ocr_blocks && (existing.ocr_blocks as any[]).length > 0) {
@@ -792,27 +881,34 @@ const AIPage = () => {
       }
     };
     run();
-  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache]);
+  }, [pdfDoc, activePageOrderIdx, activeMeta?.rotation, activeMeta?.idx, activeDoc?.id, ocrCache, currentTenant?.id]);
 
   const runOCRCurrentPage = async () => {
-    if (!pdfDoc || !activeMeta || !canvasRef.current) return;
+    if (!pdfDoc || !activeMeta || !canvasRef.current || !currentTenant?.id) return;
     setOcrRunning(true);
     setOcrProgressPercent(0);
     setOcrStatusText(`OCR Seite ${activePageOrderIdx + 1}...`);
     
     let simulatedProgress = 0;
-    const progressInterval = setInterval(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+    progressIntervalRef.current = setInterval(() => {
       if (simulatedProgress < 90) {
         simulatedProgress += Math.random() * 8;
         setOcrProgressPercent(Math.min(90, Math.floor(simulatedProgress)));
       }
     }, 300);
     
+    let tempCanvas: HTMLCanvasElement | null = null;
     try {
       const canvas = canvasRef.current;
       const words = await performOCRForPage(activeMeta.idx, canvas);
       
-      clearInterval(progressInterval);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
       setOcrProgressPercent(100);
       setOcrStatusText("OCR abgeschlossen!");
       
@@ -843,10 +939,14 @@ const AIPage = () => {
         toast.error("Keine Wörter erkannt");
       }
     } catch (err: any) {
-      clearInterval(progressInterval);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
       setOcrStatusText("Fehler bei OCR");
       toast.error("OCR Fehler: " + (err.message || "Unbekannt"));
     } finally {
+      if (tempCanvas) tempCanvas.remove();
       setTimeout(() => {
         setOcrProgressPercent(0);
         setOcrStatusText("");
@@ -857,11 +957,14 @@ const AIPage = () => {
 
   /* ---------- UPLOAD / NOTES / EXPORT / INSERT ---------- */
   const handleUpload = async (file: File) => {
-    if (!userId) return;
+    if (!userId || !currentTenant?.id) {
+      toast.error("Kein Mandant ausgewählt");
+      return;
+    }
     if (file.type !== "application/pdf") { toast.error("Nur PDF-Dateien"); return; }
     setUploading(true);
     try {
-      const path = `${userId}/${Date.now()}-${file.name}`;
+      const path = `${currentTenant.id}/${userId}/${Date.now()}-${file.name}`;
       const { error: upErr } = await supabase.storage.from("pdfs").upload(path, file);
       if (upErr) throw upErr;
       const buf = await file.arrayBuffer();
@@ -869,13 +972,15 @@ const AIPage = () => {
       const order: PageMeta[] = Array.from({ length: pdf.numPages }, (_, i) => ({ idx: i, rotation: 0 }));
       
       const insertPayload: any = {
-        owner_id: userId, name: file.name, storage_path: path, page_order: order as any, notes: "",
-        checked_out_by: userId, checked_out_at: new Date().toISOString(),
+        owner_id: userId,
+        name: file.name,
+        storage_path: path,
+        page_order: order as any,
+        notes: "",
+        checked_out_by: userId,
+        checked_out_at: new Date().toISOString(),
+        tenant_id: currentTenant.id, // Immer setzen!
       };
-      
-      if (currentTenant?.id) {
-        insertPayload.tenant_id = currentTenant.id;
-      }
       
       const { data, error } = await supabase.from("pdf_documents").insert(insertPayload).select().single();
       if (error) throw error;
@@ -887,7 +992,7 @@ const AIPage = () => {
       setTimeout(async () => {
         const newDoc = data as unknown as Doc;
         const { data: storageData, error: storageError } = await supabase.storage.from("pdfs").download(path);
-        if (storageError) {
+        if (storageError || !storageData) {
           toast.error("Dokument konnte nicht für OCR geladen werden");
           return;
         }
@@ -895,7 +1000,7 @@ const AIPage = () => {
         const pdfDocForOCR = await pdfjsLib.getDocument({ data: newBuf }).promise;
         await runOCRForDocument(newDoc, pdfDocForOCR);
         
-        const { data: updatedDocs } = await supabase.from("pdf_documents").select("*").eq("id", data.id);
+        const { data: updatedDocs } = await supabase.from("pdf_documents").select("*").eq("id", data.id).eq("tenant_id", currentTenant.id);
         if (updatedDocs && updatedDocs.length > 0) {
           setDocs(prev => prev.map(d => d.id === data.id ? { ...d, ...(updatedDocs[0] as unknown as Doc) } : d));
         }
@@ -908,9 +1013,10 @@ const AIPage = () => {
 
   const saveNotes = async (v: string) => {
     setNotes(v);
-    if (!activeDoc) return;
-    await supabase.from("pdf_documents").update({ notes: v }).eq("id", activeDoc.id);
+    if (!activeDoc || !currentTenant?.id) return;
+    await supabase.from("pdf_documents").update({ notes: v }).eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
   };
+  
   const insertAtCursor = (txt: string) => {
     const ta = textareaRef.current;
     if (!ta) { setNotes(n => n + txt); return; }
@@ -930,14 +1036,16 @@ const AIPage = () => {
       ta.setSelectionRange(pos, pos);
     });
   };
+  
   const deleteDoc = async () => {
-    if (!activeDoc || !confirm("Dokument wirklich löschen?")) return;
+    if (!activeDoc || !currentTenant?.id || !confirm("Dokument wirklich löschen?")) return;
     await supabase.storage.from("pdfs").remove([activeDoc.storage_path]);
-    await supabase.from("pdf_documents").delete().eq("id", activeDoc.id);
+    await supabase.from("pdf_documents").delete().eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
     setActiveDocId(null); setPdfDoc(null);
     loadDocs();
     toast.success("Dokument gelöscht");
   };
+  
   const exportEdited = async () => {
     if (!pdfDoc || !activeDoc) return;
     toast.loading("Erstelle PDF...", { id: "exp" });
@@ -969,6 +1077,11 @@ const AIPage = () => {
 
   /* ---------- PROPERTIES (Eigenschaften) MANAGER ---------- */
   const addType = async () => {
+    if (!userId || !currentTenant?.id) {
+      toast.error("Kein Mandant ausgewählt");
+      return;
+    }
+    
     const name = newTypeName.trim();
     if (!name) return;
     
@@ -976,11 +1089,9 @@ const AIPage = () => {
       name, 
       created_by: userId,
       split_enabled: newTypeSplitEnabled,
-      split_regex: newTypeSplitRegex || null
+      split_regex: newTypeSplitRegex || null,
+      tenant_id: currentTenant.id, // Immer setzen!
     };
-    if (currentTenant?.id) {
-      insertPayload.tenant_id = currentTenant.id;
-    }
     
     const { data, error } = await supabase.from("document_types").insert(insertPayload).select().single();
     if (error) { toast.error(error.message); return; }
@@ -992,29 +1103,30 @@ const AIPage = () => {
   };
   
   const renameType = async (id: string, name: string) => {
+    if (!currentTenant?.id) return;
     setDocTypes(p => p.map(t => t.id === id ? { ...t, name } : t));
-    await supabase.from("document_types").update({ name }).eq("id", id);
+    await supabase.from("document_types").update({ name }).eq("id", id).eq("tenant_id", currentTenant.id);
   };
   
   const deleteType = async (id: string) => {
+    if (!currentTenant?.id) return;
     if (!confirm("Eigenschaft inkl. Schlagwörter löschen?")) return;
-    await supabase.from("document_types").delete().eq("id", id);
+    await supabase.from("document_types").delete().eq("id", id).eq("tenant_id", currentTenant.id);
     setDocTypes(p => p.filter(t => t.id !== id));
     setKeywords(p => p.filter(k => k.type_id !== id));
     if (selectedTypeId === id) setSelectedTypeId(null);
   };
   
   const addKeyword = async (typeId: string) => {
+    if (!currentTenant?.id) return;
     const kw = (newKeywordByType[typeId] || "").trim();
     if (!kw) return;
     
     const insertPayload: any = { 
       type_id: typeId, 
-      keyword: kw 
+      keyword: kw,
+      tenant_id: currentTenant.id, // Immer setzen!
     };
-    if (currentTenant?.id) {
-      insertPayload.tenant_id = currentTenant.id;
-    }
     
     const { data, error } = await supabase.from("document_type_keywords").insert(insertPayload).select().single();
     if (error) { toast.error(error.message); return; }
@@ -1023,14 +1135,28 @@ const AIPage = () => {
   };
   
   const updateKeyword = async (id: string, keyword: string) => {
+    if (!currentTenant?.id) return;
     setKeywords(p => p.map(k => k.id === id ? { ...k, keyword } : k));
-    await supabase.from("document_type_keywords").update({ keyword }).eq("id", id);
+    await supabase.from("document_type_keywords").update({ keyword }).eq("id", id).eq("tenant_id", currentTenant.id);
   };
   
   const deleteKeyword = async (id: string) => {
-    await supabase.from("document_type_keywords").delete().eq("id", id);
+    if (!currentTenant?.id) return;
+    await supabase.from("document_type_keywords").delete().eq("id", id).eq("tenant_id", currentTenant.id);
     setKeywords(p => p.filter(k => k.id !== id));
   };
+
+  // Cleanup bei unmount
+  useEffect(() => {
+    return () => {
+      if (ocrAbortControllerRef.current) {
+        ocrAbortControllerRef.current.abort();
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    };
+  }, []);
 
   // WICHTIG: Während der Tenant geladen wird, zeige einen Ladebildschirm
   if (tenantLoading) {
@@ -1039,6 +1165,24 @@ const AIPage = () => {
         <div className="flex items-center justify-center h-screen">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="ml-2">Lade Mandant...</span>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // Wenn kein Tenant ausgewählt ist, zeige Fehlermeldung
+  if (!currentTenant) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Card className="p-8 text-center max-w-md">
+            <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">Kein Mandant ausgewählt</h2>
+            <p className="text-muted-foreground mb-4">
+              Bitte wählen Sie oben rechts einen Mandanten aus, um die KI/OCR-Funktionen zu nutzen.
+            </p>
+            <Button onClick={() => window.location.reload()}>Neu laden</Button>
+          </Card>
         </div>
       </AdminLayout>
     );
@@ -1059,6 +1203,7 @@ const AIPage = () => {
             {currentTenant && (
               <p className="text-xs text-muted-foreground mt-1">
                 Mandant: <span className="font-medium">{currentTenant.name}</span>
+                {!isTenantAdmin && <Badge variant="secondary" className="ml-2 text-[10px]">Nur Lesezugriff</Badge>}
               </p>
             )}
           </div>
@@ -1095,7 +1240,7 @@ const AIPage = () => {
                 </button>
                 {isDropdownOpen && (
                   <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-80 overflow-auto">
-                    {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente</div>}
+                    {docs.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">Keine Dokumente in diesem Mandanten</div>}
                     {myCheckedOutDocs.length > 0 && (
                       <>
                         <div className="px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground bg-muted/50 border-b">
@@ -1217,7 +1362,7 @@ const AIPage = () => {
                 {myCheckedOutDocs.length === 0 ? (
                   <div className="border rounded p-3 text-center text-muted-foreground">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-xs">Keine aktiven Dokumente</p>
+                    <p className="text-xs">Keine aktiven Dokumente in diesem Mandanten</p>
                     <Button 
                       size="sm" 
                       variant="outline" 
@@ -1238,7 +1383,7 @@ const AIPage = () => {
                         <div className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded flex items-center justify-between ${
                           isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground bg-muted/30'
                         }`}>
-                          <span>{doc.name}</span>
+                          <span className="truncate flex-1">{doc.name}</span>
                           {doc.checked_out_by === userId && (
                             <button onClick={(e) => { e.stopPropagation(); releaseDoc(doc.id, e); }} className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Dokument zurücklegen">
                               <Undo2 className="h-3 w-3" />
@@ -1293,6 +1438,11 @@ const AIPage = () => {
                     <span className="text-base font-semibold">
                       {detectedType ? detectedType.name : (activeDoc ? "Nicht erkannt" : "Kein Dokument ausgewählt")}
                     </span>
+                    {detectedType && detectedType.name && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {activeDoc?.matched_keywords?.length || 0} Schlagwörter
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -1303,20 +1453,23 @@ const AIPage = () => {
                     placeholder="Kein Dokument ausgewählt"
                     disabled={!activeDoc}
                     onChange={async e => {
-                      if (!activeDoc) return;
+                      if (!activeDoc || !currentTenant?.id) return;
                       setDocs(p => p.map(d => d.id === activeDoc.id ? { ...d, name: e.target.value } : d));
-                      await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id);
+                      await supabase.from("pdf_documents").update({ name: e.target.value }).eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
                     }} 
                   />
                 </div>
-                <Textarea 
-                  ref={textareaRef} 
-                  value={notes} 
-                  onChange={e => saveNotes(e.target.value)} 
-                  className="flex-1 min-h-[200px] font-mono text-sm" 
-                  placeholder={activeDoc ? "Erkannter Text wird hier eingefügt..." : "Wählen Sie ein Dokument aus, um OCR durchzuführen..."}
-                  disabled={!activeDoc}
-                />
+                
+                <div className="flex-1 min-h-[200px] relative">
+                  <Textarea 
+                    ref={textareaRef} 
+                    value={notes} 
+                    onChange={e => saveNotes(e.target.value)} 
+                    className="min-h-[200px] font-mono text-sm resize-y" 
+                    placeholder={activeDoc ? "Erkannter Text wird hier eingefügt..." : "Wählen Sie ein Dokument aus, um OCR durchzuführen..."}
+                    disabled={!activeDoc}
+                  />
+                </div>
                 <div className="text-[10px] text-muted-foreground mt-1">Klicke auf ein erkanntes Wort in der Vorschau, um es einzufügen.</div>
               </Card>
 
@@ -1326,9 +1479,13 @@ const AIPage = () => {
                   <div className="relative inline-block max-w-full">
                     <canvas ref={canvasRef} className="block max-w-full h-auto shadow-md" />
                     {wordBlocks.map((word, i) => (
-                      <button key={i} onClick={() => insertAtCursor(word.text)} title={word.text}
+                      <button 
+                        key={i} 
+                        onClick={() => insertAtCursor(word.text)} 
+                        title={word.text}
                         className="absolute border border-blue-400/60 bg-blue-500/10 hover:bg-blue-500/30 transition-colors cursor-pointer rounded-sm"
-                        style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} />
+                        style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} 
+                      />
                     ))}
                   </div>
                 ) : (
@@ -1451,7 +1608,7 @@ const AIPage = () => {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
-                        ))}
+                        ))
                       )}
                     </div>
                     <div className="flex gap-2">
