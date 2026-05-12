@@ -15,7 +15,7 @@ import { toast } from "sonner";
 type Member = { user_id: string; role: string; email: string | null; display_name: string | null };
 
 const TenantsPage = () => {
-  const { isAdmin } = useAuth();
+  const { userId, isAdmin } = useAuth();
   const { currentTenant, isTenantAdmin, reload, tenants, setCurrentTenantId } = useTenant();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -48,15 +48,46 @@ const TenantsPage = () => {
 
   const createTenant = async () => {
     if (!name.trim() || !slug.trim()) return toast.error("Name und Slug erforderlich");
+    if (!userId) return toast.error("Nicht eingeloggt");
+    
     setCreating(true);
-    const { data, error } = await supabase.from("tenants").insert({ name: name.trim(), slug: slug.trim().toLowerCase() }).select().single();
+    
+    // 1. Mandanten erstellen
+    const { data: tenant, error: tenantError } = await supabase
+      .from("tenants")
+      .insert({ name: name.trim(), slug: slug.trim().toLowerCase() })
+      .select()
+      .single();
+    
+    if (tenantError) {
+      setCreating(false);
+      return toast.error(tenantError.message);
+    }
+    
+    // 2. Aktuellen Benutzer als Admin zum Mandanten hinzufügen
+    const { error: memberError } = await supabase
+      .from("user_tenants")
+      .insert({ 
+        user_id: userId, 
+        tenant_id: tenant.id, 
+        role: "admin" 
+      });
+    
     setCreating(false);
-    if (error) return toast.error(error.message);
-    toast.success("Mandant angelegt");
-    setName(""); setSlug("");
+    
+    if (memberError) {
+      toast.error("Mandant angelegt, aber du wurdest nicht als Mitglied hinzugefügt.");
+    } else {
+      toast.success("Mandant angelegt und du wurdest als Admin hinzugefügt");
+    }
+    
+    setName("");
+    setSlug("");
     await reload();
-    if (data) {
-      setCurrentTenantId(data.id);
+    
+    // Zum neuen Mandanten wechseln (wenn erfolgreich)
+    if (tenant && !memberError) {
+      setCurrentTenantId(tenant.id);
     }
   };
 
@@ -133,7 +164,9 @@ const TenantsPage = () => {
             {isTenantAdmin && (
               <div className="flex gap-2">
                 <Button onClick={saveTenant}>Speichern</Button>
-                <Button variant="destructive" onClick={deleteTenant}><Trash2 className="w-4 h-4 mr-1" />Löschen</Button>
+                <Button variant="destructive" onClick={deleteTenant}>
+                  <Trash2 className="w-4 h-4 mr-1" />Löschen
+                </Button>
               </div>
             )}
           </Card>
@@ -141,11 +174,17 @@ const TenantsPage = () => {
 
         {currentTenant && isTenantAdmin && (
           <Card className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2"><UserPlus className="w-5 h-5" />Mitglieder</h2>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <UserPlus className="w-5 h-5" />Mitglieder
+            </h2>
             <div className="flex gap-2 items-end">
               <div className="flex-1">
                 <Label>E-Mail</Label>
-                <Input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="benutzer@example.com" />
+                <Input 
+                  value={inviteEmail} 
+                  onChange={e => setInviteEmail(e.target.value)} 
+                  placeholder="benutzer@example.com" 
+                />
               </div>
               <div>
                 <Label>Rolle</Label>
@@ -157,7 +196,9 @@ const TenantsPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={inviteMember}><Plus className="w-4 h-4 mr-1" />Hinzufügen</Button>
+              <Button onClick={inviteMember}>
+                <Plus className="w-4 h-4 mr-1" />Hinzufügen
+              </Button>
             </div>
             <div className="divide-y border-t">
               {members.map(m => (
@@ -174,11 +215,15 @@ const TenantsPage = () => {
                         <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="sm" onClick={() => removeMember(m.user_id)}><Trash2 className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => removeMember(m.user_id)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               ))}
-              {members.length === 0 && <div className="py-4 text-sm text-muted-foreground text-center">Keine Mitglieder</div>}
+              {members.length === 0 && (
+                <div className="py-4 text-sm text-muted-foreground text-center">Keine Mitglieder</div>
+              )}
             </div>
           </Card>
         )}
@@ -196,29 +241,36 @@ const TenantsPage = () => {
                 <Input value={slug} onChange={e => setSlug(e.target.value)} placeholder="acme" />
               </div>
             </div>
-            <Button onClick={createTenant} disabled={creating}><Plus className="w-4 h-4 mr-1" />Anlegen</Button>
-            <p className="text-xs text-muted-foreground">Du wirst nicht automatisch Mitglied. Füge dich anschließend als Admin im neuen Mandanten hinzu.</p>
+            <Button onClick={createTenant} disabled={creating}>
+              <Plus className="w-4 h-4 mr-1" />Anlegen
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Du wirst automatisch als Admin hinzugefügt und zum neuen Mandanten gewechselt.
+            </p>
           </Card>
         )}
 
         <Card className="p-6">
           <h2 className="text-lg font-semibold mb-3">Meine Mandanten</h2>
           <div className="space-y-2">
-            {tenants.map(t => (
-              <div 
-                key={t.id} 
-                className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                onClick={() => setCurrentTenantId(t.id)}
-              >
-                <div>
-                  <div className="font-medium">{t.name}</div>
-                  <div className="text-xs text-muted-foreground">{t.slug}</div>
-                </div>
-                <Badge variant={t.role === "admin" ? "default" : "secondary"}>{t.role}</Badge>
-              </div>
-            ))}
-            {tenants.length === 0 && (
+            {tenants.length === 0 ? (
               <div className="py-4 text-sm text-muted-foreground text-center">Keine Mandanten zugeordnet</div>
+            ) : (
+              tenants.map(t => (
+                <div 
+                  key={t.id} 
+                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                    currentTenant?.id === t.id ? 'bg-primary/10 border-primary' : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setCurrentTenantId(t.id)}
+                >
+                  <div>
+                    <div className="font-medium">{t.name}</div>
+                    <div className="text-xs text-muted-foreground">{t.slug}</div>
+                  </div>
+                  <Badge variant={t.role === "admin" ? "default" : "secondary"}>{t.role}</Badge>
+                </div>
+              ))
             )}
           </div>
         </Card>
