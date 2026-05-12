@@ -44,6 +44,10 @@ const PAGE_THUMB_SCALE = 0.15;
 const AIPage = () => {
   const { userId } = useAuth();
   const { currentTenant, isTenantAdmin } = useTenant();
+
+  console.log("🔍 AIPage render, currentTenant:", currentTenant);
+  const [isReady, setIsReady] = useState(false);
+  
   const [tab, setTab] = useState("dokumente");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
@@ -96,6 +100,30 @@ const AIPage = () => {
   // Andere Dokumente (nicht vom aktuellen User ausgecheckt)
   const otherDocs = useMemo(() => docs.filter(d => d.checked_out_by !== userId), [docs, userId]);
 
+
+  useEffect(() => {
+    // Warte kurz auf Tenant-Context
+    const timer = setTimeout(() => setIsReady(true), 100);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    // Warte kurz auf Tenant-Context
+    const timer = setTimeout(() => setIsReady(true), 100);
+    return () => clearTimeout(timer);
+  }, []);
+  
+  if (!currentTenant && !isReady) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Lade Mandant...</span>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  
   // PDF Doc ref aktualisieren
   useEffect(() => {
     pdfDocRef.current = pdfDoc;
