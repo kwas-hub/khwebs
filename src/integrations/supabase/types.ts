@@ -175,6 +175,8 @@ export type Database = {
           created_by: string | null
           id: string
           name: string
+          split_enabled: boolean | null
+          split_regex: string | null
           updated_at: string
         }
         Insert: {
@@ -182,6 +184,8 @@ export type Database = {
           created_by?: string | null
           id?: string
           name: string
+          split_enabled?: boolean | null
+          split_regex?: string | null
           updated_at?: string
         }
         Update: {
@@ -189,6 +193,8 @@ export type Database = {
           created_by?: string | null
           id?: string
           name?: string
+          split_enabled?: boolean | null
+          split_regex?: string | null
           updated_at?: string
         }
         Relationships: []
