@@ -1174,14 +1174,12 @@ const AIPage = () => {
   if (!currentTenant) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center h-screen">
-          <Card className="p-8 text-center max-w-md">
-            <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">Kein Mandant ausgewählt</h2>
-            <p className="text-muted-foreground mb-4">
-              Bitte wählen Sie oben rechts einen Mandanten aus, um die KI/OCR-Funktionen zu nutzen.
-            </p>
-            <Button onClick={() => window.location.reload()}>Neu laden</Button>
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold">AI Dokumente</h1>
+          </div>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
           </Card>
         </div>
       </AdminLayout>
