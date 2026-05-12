@@ -15,14 +15,15 @@ import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning, Calen
 import { toast } from "sonner";
 import { EmailTemplateEditor } from "@/components/admin/EmailTemplateEditor";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useTenant } from "@/contexts/TenantContext";
 
 type FieldType = "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "select" | "html";
 type Field = {
   id: string; form_id: string; field_type: FieldType; label: string; field_name: string;
   options: string[]; html_content: string; required: boolean; position: number; placeholder: string;
 };
-type Form = { id: string; title: string; description: string; published: boolean; position: number; submit_label: string; success_message: string };
-type Submission = { id: string; form_id: string; data: Record<string, any>; created_at: string; status: "open" | "confirmed" | "cancelled"; internal_note: string };
+type Form = { id: string; tenant_id: string; title: string; description: string; published: boolean; position: number; submit_label: string; success_message: string };
+type Submission = { id: string; tenant_id: string; form_id: string; data: Record<string, any>; created_at: string; status: "open" | "confirmed" | "cancelled"; internal_note: string };
 
 const generateIdFromLabel = (label: string) =>
   label.toLowerCase().trim().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "_") || "field_id";
@@ -31,27 +32,53 @@ const FIELD_TYPES: FieldType[] = ["text", "number", "email", "textarea", "radio"
 
 const Formulare = () => {
   const { isAdmin } = useUserRole();
+  const { currentTenant, isTenantAdmin } = useTenant();
   const [forms, setForms] = useState<Form[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
   const [subs, setSubs] = useState<Submission[]>([]);
   const [submissionFilterForm, setSubmissionFilterForm] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
 
   const loadForms = async () => {
-    const { data } = await supabase.from("forms").select("*").order("position").order("created_at");
+    if (!currentTenant?.id) return;
+    const { data } = await supabase
+      .from("forms")
+      .select("*")
+      .eq("tenant_id", currentTenant.id)
+      .order("position")
+      .order("created_at");
     setForms((data ?? []) as Form[]);
     if (!activeId && data && data.length) setActiveId(data[0].id);
   };
+  
   const loadFields = async (formId: string) => {
-    const { data } = await supabase.from("form_fields").select("*").eq("form_id", formId).order("position");
+    const { data } = await supabase
+      .from("form_fields")
+      .select("*")
+      .eq("form_id", formId)
+      .order("position");
     setFields((data ?? []).map((f: any) => ({ ...f, options: Array.isArray(f.options) ? f.options : [] })) as Field[]);
   };
+  
   const loadSubs = async () => {
-    const { data } = await supabase.from("form_submissions").select("*").order("created_at", { ascending: false });
+    if (!currentTenant?.id) return;
+    const { data } = await supabase
+      .from("form_submissions")
+      .select("*")
+      .eq("tenant_id", currentTenant.id)
+      .order("created_at", { ascending: false });
     setSubs((data ?? []) as Submission[]);
   };
 
-  useEffect(() => { loadForms(); loadSubs(); }, []);
+  useEffect(() => { 
+    if (currentTenant?.id) {
+      loadForms(); 
+      loadSubs(); 
+    }
+    setLoading(false);
+  }, [currentTenant?.id]);
+  
   useEffect(() => { if (activeId) loadFields(activeId); }, [activeId]);
 
   const moveField = async (index: number, direction: 'up' | 'down') => {
@@ -69,20 +96,43 @@ const Formulare = () => {
   };
 
   const addForm = async () => {
-    const { data, error } = await supabase.from("forms").insert({ title: "Neues Formular", position: forms.length }).select().single();
+    if (!currentTenant?.id) return toast.error("Kein Mandant ausgewählt");
+    const { data, error } = await supabase
+      .from("forms")
+      .insert({ 
+        title: "Neues Formular", 
+        position: forms.length, 
+        tenant_id: currentTenant.id 
+      })
+      .select()
+      .single();
     if (error) return toast.error(error.message);
-    await loadForms(); setActiveId(data.id);
+    await loadForms(); 
+    setActiveId(data.id);
   };
+  
   const updateForm = async (id: string, patch: Partial<Form>) => {
+    if (!currentTenant) return;
     setForms((p) => p.map((f) => f.id === id ? { ...f, ...patch } : f));
-    const { error } = await supabase.from("forms").update(patch).eq("id", id);
+    const { error } = await supabase
+      .from("forms")
+      .update(patch)
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message);
   };
+  
   const deleteForm = async (id: string) => {
+    if (!currentTenant) return;
     if (!confirm("Formular wirklich löschen?")) return;
-    const { error } = await supabase.from("forms").delete().eq("id", id);
+    const { error } = await supabase
+      .from("forms")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) return toast.error(error.message);
-    setActiveId(null); loadForms();
+    setActiveId(null); 
+    loadForms();
   };
 
   const addField = async (type: FieldType) => {
@@ -110,36 +160,50 @@ const Formulare = () => {
     const { error } = await supabase.from("form_fields").update(patch).eq("id", id);
     if (error) toast.error(error.message);
   };
+  
   const deleteField = async (id: string) => {
     const { error } = await supabase.from("form_fields").delete().eq("id", id);
     if (error) return toast.error(error.message);
     if (activeId) loadFields(activeId);
   };
+  
   const updateOption = (fieldId: string, index: number, value: string) => {
     const f = fields.find(x => x.id === fieldId); if (!f) return;
     const o = [...f.options]; o[index] = value;
     updateField(fieldId, { options: o });
   };
+  
   const addOption = (fieldId: string) => {
     const f = fields.find(x => x.id === fieldId); if (!f) return;
     updateField(fieldId, { options: [...f.options, `Option ${f.options.length + 1}`] });
   };
+  
   const removeOption = (fieldId: string, index: number) => {
     const f = fields.find(x => x.id === fieldId); if (!f || f.options.length <= 1) return;
     updateField(fieldId, { options: f.options.filter((_, i) => i !== index) });
   };
 
   const updateSubmissionData = async (id: string, key: string, value: string) => {
+    if (!currentTenant) return;
     const sub = subs.find(s => s.id === id); if (!sub) return;
     const data = { ...sub.data, [key]: value };
     setSubs(p => p.map(s => s.id === id ? { ...s, data } : s));
-    const { error } = await supabase.from("form_submissions").update({ data }).eq("id", id);
+    const { error } = await supabase
+      .from("form_submissions")
+      .update({ data })
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error("Speichern fehlgeschlagen");
   };
 
   const updateSubmissionField = async (id: string, patch: Partial<Submission>) => {
+    if (!currentTenant) return;
     setSubs(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
-    const { error } = await supabase.from("form_submissions").update(patch).eq("id", id);
+    const { error } = await supabase
+      .from("form_submissions")
+      .update(patch)
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) toast.error(error.message);
   };
 
@@ -170,8 +234,13 @@ const Formulare = () => {
   };
 
   const deleteSubmission = async (id: string) => {
+    if (!currentTenant) return;
     if (!confirm("Eintrag wirklich löschen?")) return;
-    const { error } = await supabase.from("form_submissions").delete().eq("id", id);
+    const { error } = await supabase
+      .from("form_submissions")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", currentTenant.id);
     if (error) return toast.error(error.message);
     loadSubs();
   };
@@ -181,12 +250,47 @@ const Formulare = () => {
     submissionFilterForm === "all" ? subs : subs.filter(s => s.form_id === submissionFilterForm),
     [subs, submissionFilterForm]);
 
+  // Kein Mandant ausgewählt
+  if (!currentTenant) {
+    return (
+      <AdminLayout>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Formulare</h1>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // Ladezustand
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Formulare</h1>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Lade Formulare...</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-3xl font-bold">Formulare</h1>
-          <Button onClick={addForm}><Plus className="h-4 w-4 mr-2" />Neues Formular</Button>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-3xl font-bold">Formulare</h1>
+            <p className="text-sm text-muted-foreground">
+              Mandant: <span className="font-medium">{currentTenant.name}</span>
+            </p>
+          </div>
+          {isTenantAdmin && (
+            <Button onClick={addForm}><Plus className="h-4 w-4 mr-2" />Neues Formular</Button>
+          )}
         </div>
 
         <Tabs defaultValue="builder" className="w-full">
@@ -208,7 +312,7 @@ const Formulare = () => {
                 ))}
               </Card>
 
-              {activeForm && (
+              {activeForm ? (
                 <div className="space-y-6">
                   <Card className="p-6 space-y-4 border-border shadow-sm">
                     <div className="grid sm:grid-cols-2 gap-4">
@@ -218,18 +322,22 @@ const Formulare = () => {
                     <div className="space-y-1.5"><Label className="text-xs font-bold uppercase text-muted-foreground">Beschreibung</Label><Textarea rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} /></div>
                     <div className="flex items-center justify-between pt-4 border-t">
                       <div className="flex items-center gap-3 text-sm font-medium"><Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />Öffentlich</div>
-                      <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)}><Trash2 className="h-4 w-4 mr-2" />Löschen</Button>
+                      {isTenantAdmin && (
+                        <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)}><Trash2 className="h-4 w-4 mr-2" />Löschen</Button>
+                      )}
                     </div>
                   </Card>
 
                   <Card className="p-6 space-y-6 border-border shadow-sm">
                     <div className="flex items-center justify-between border-b pb-4">
                       <h3 className="font-bold">Felder</h3>
-                      <div className="flex flex-wrap gap-1">
-                        {FIELD_TYPES.map((t) => (
-                          <Button key={t} size="sm" variant="secondary" onClick={() => addField(t)} className="h-7 text-[10px] font-bold uppercase">+ {t}</Button>
-                        ))}
-                      </div>
+                      {isTenantAdmin && (
+                        <div className="flex flex-wrap gap-1">
+                          {FIELD_TYPES.map((t) => (
+                            <Button key={t} size="sm" variant="secondary" onClick={() => addField(t)} className="h-7 text-[10px] font-bold uppercase">+ {t}</Button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-4">
@@ -245,7 +353,9 @@ const Formulare = () => {
                               <span className="text-[10px] font-mono text-muted-foreground">name=<strong className="text-foreground">{f.field_name}</strong></span>
                               <label className="flex items-center gap-1 text-[10px] ml-2"><input type="checkbox" checked={f.required} onChange={(e) => updateField(f.id, { required: e.target.checked })} /> Pflicht</label>
                             </div>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
+                            {isTenantAdmin && (
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteField(f.id)}><Trash2 className="h-4 w-4" /></Button>
+                            )}
                           </div>
 
                           {f.field_type === "html" ? (
@@ -276,6 +386,10 @@ const Formulare = () => {
                     </div>
                   </Card>
                 </div>
+              ) : (
+                <Card className="p-12 text-center text-muted-foreground">
+                  Kein Formular ausgewählt oder erstellt.
+                </Card>
               )}
             </div>
           </TabsContent>
@@ -343,7 +457,7 @@ const Formulare = () => {
                         )}
                       </div>
 
-                      {/* Notiz - Spalte 4 (Wie im Bild rot markiert) */}
+                      {/* Notiz - Spalte 4 */}
                       <div className="lg:w-48 flex-shrink-0">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Notiz</div>
                         <Textarea 
@@ -366,9 +480,11 @@ const Formulare = () => {
                             <SelectItem value="cancelled">Abgelehnt</SelectItem>
                           </SelectContent>
                         </Select>
-                        <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 hover:bg-destructive/10" onClick={() => deleteSubmission(s.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {isTenantAdmin && (
+                          <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 hover:bg-destructive/10" onClick={() => deleteSubmission(s.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
 
                     </div>
