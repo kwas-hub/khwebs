@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard, Newspaper, CalendarDays, LogOut, Menu, X,
   ShieldCheck, FileText, Users as UsersIcon, Hourglass, Sparkles,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Building2, Plug,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/admin/NotificationBell";
+import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
 import { cn } from "@/lib/utils";
 
 type AppRole = "admin" | "editor" | "guest";
@@ -19,6 +20,8 @@ const allItems = [
   { title: "Termine", url: "/admin/termine", icon: CalendarDays, end: false, roles: ["admin", "editor", "guest"] as AppRole[] },
   { title: "Formulare", url: "/admin/formulare", icon: FileText, end: false, roles: ["admin", "editor"] as AppRole[] },
   { title: "AI", url: "/admin/ai", icon: Sparkles, end: false, roles: ["admin", "editor"] as AppRole[] },
+  { title: "API", url: "/admin/api-settings", icon: Plug, end: false, roles: ["admin", "editor"] as AppRole[] },
+  { title: "Mandanten", url: "/admin/tenants", icon: Building2, end: false, roles: ["admin", "editor"] as AppRole[] },
   { title: "Users", url: "/admin/users", icon: UsersIcon, end: false, roles: ["admin"] as AppRole[] },
 ];
 
@@ -211,6 +214,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
+          <TenantSwitcher />
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             Live System
