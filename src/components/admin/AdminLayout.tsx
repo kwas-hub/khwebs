@@ -9,9 +9,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/admin/NotificationBell";
-import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
 import { cn } from "@/lib/utils";
-import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
 
 type AppRole = "admin" | "editor" | "guest";
 
@@ -214,8 +212,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
-          <TenantSwitcher />
+        <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4"> 
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             Live System
