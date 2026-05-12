@@ -16,7 +16,7 @@ type Member = { user_id: string; role: string; email: string | null; display_nam
 
 const TenantsPage = () => {
   const { isAdmin } = useAuth();
-  const { currentTenant, isTenantAdmin, reload, tenants } = useTenant();
+  const { currentTenant, isTenantAdmin, reload, tenants, setCurrentTenantId } = useTenant();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [creating, setCreating] = useState(false);
@@ -55,6 +55,9 @@ const TenantsPage = () => {
     toast.success("Mandant angelegt");
     setName(""); setSlug("");
     await reload();
+    if (data) {
+      setCurrentTenantId(data.id);
+    }
   };
 
   const saveTenant = async () => {
@@ -202,7 +205,11 @@ const TenantsPage = () => {
           <h2 className="text-lg font-semibold mb-3">Meine Mandanten</h2>
           <div className="space-y-2">
             {tenants.map(t => (
-              <div key={t.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div 
+                key={t.id} 
+                className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => setCurrentTenantId(t.id)}
+              >
                 <div>
                   <div className="font-medium">{t.name}</div>
                   <div className="text-xs text-muted-foreground">{t.slug}</div>
@@ -210,6 +217,9 @@ const TenantsPage = () => {
                 <Badge variant={t.role === "admin" ? "default" : "secondary"}>{t.role}</Badge>
               </div>
             ))}
+            {tenants.length === 0 && (
+              <div className="py-4 text-sm text-muted-foreground text-center">Keine Mandanten zugeordnet</div>
+            )}
           </div>
         </Card>
       </div>
