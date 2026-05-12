@@ -2,6 +2,7 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,11 +29,12 @@ type Doc = {
   id: string; name: string; storage_path: string; page_order: PageMeta[]; notes: string;
   created_at: string; checked_out_by: string | null;
   detected_type_id: string | null; matched_keywords: string[];
+  tenant_id?: string;
 };
 type PageMeta = { idx: number; rotation: number };
 type WordBlock = { text: string; x: number; y: number; w: number; h: number };
-type DocType = { id: string; name: string; split_enabled?: boolean; split_regex?: string };
-type Keyword = { id: string; type_id: string; keyword: string };
+type DocType = { id: string; name: string; split_enabled?: boolean; split_regex?: string; tenant_id?: string };
+type Keyword = { id: string; type_id: string; keyword: string; tenant_id?: string };
 type SplitInfo = { pageIndex: number; match: string; position: number };
 
 const RENDER_SCALE = 1.4;
@@ -40,6 +42,7 @@ const PAGE_THUMB_SCALE = 0.15;
 
 const AIPage = () => {
   const { userId } = useAuth();
+  const { currentTenant, isTenantAdmin, loading: tenantLoading } = useTenant();
   const [tab, setTab] = useState("dokumente");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
@@ -100,17 +103,27 @@ const AIPage = () => {
   /* ---------- LOAD ---------- */
   const loadDocs = useCallback(async () => {
     if (!userId) return;
-    const { data } = await supabase.from("pdf_documents").select("*").order("created_at", { ascending: false });
+    let query = supabase.from("pdf_documents").select("*").order("created_at", { ascending: false });
+    // Nur nach tenant_id filtern, wenn ein Mandant ausgewählt ist
+    if (currentTenant?.id) {
+      query = query.eq("tenant_id", currentTenant.id);
+    }
+    const { data } = await query;
     setDocs(((data ?? []) as any[]).map(d => ({ ...d, matched_keywords: d.matched_keywords ?? [] })) as Doc[]);
-  }, [userId]);
+  }, [userId, currentTenant?.id]);
+  
   const loadTypes = useCallback(async () => {
-    const [t, k] = await Promise.all([
-      supabase.from("document_types").select("*").order("name"),
-      supabase.from("document_type_keywords").select("*").order("keyword"),
-    ]);
+    let typesQuery = supabase.from("document_types").select("*").order("name");
+    let keywordsQuery = supabase.from("document_type_keywords").select("*").order("keyword");
+    if (currentTenant?.id) {
+      typesQuery = typesQuery.eq("tenant_id", currentTenant.id);
+      keywordsQuery = keywordsQuery.eq("tenant_id", currentTenant.id);
+    }
+    const [t, k] = await Promise.all([typesQuery, keywordsQuery]);
     setDocTypes((t.data ?? []) as DocType[]);
     setKeywords((k.data ?? []) as Keyword[]);
-  }, []);
+  }, [currentTenant?.id]);
+  
   useEffect(() => { loadDocs(); loadTypes(); }, [loadDocs, loadTypes]);
 
   // Thumbnails für alle Seiten aller aktiven Dokumente laden
@@ -266,30 +279,36 @@ const AIPage = () => {
       const newDoc1Name = `${activeDoc.name.replace(/\.pdf$/i, "")}_Teil1_${timestamp}.pdf`;
       const newDoc2Name = `${activeDoc.name.replace(/\.pdf$/i, "")}_Teil2_${timestamp}.pdf`;
       
-      const { data: newDoc1, error: err1 } = await supabase.from("pdf_documents").insert({
+      const payload = {
         owner_id: userId,
-        name: newDoc1Name,
+        name: "",
         storage_path: activeDoc.storage_path,
-        page_order: firstPartPages as any,
-        notes: `Getrennt von ${activeDoc.name} (Teil 1)`,
+        page_order: [] as any,
+        notes: "",
         checked_out_by: userId,
         checked_out_at: new Date().toISOString(),
         detected_type_id: activeDoc.detected_type_id,
         matched_keywords: activeDoc.matched_keywords,
+      };
+      
+      if (currentTenant?.id) {
+        (payload as any).tenant_id = currentTenant.id;
+      }
+      
+      const { data: newDoc1, error: err1 } = await supabase.from("pdf_documents").insert({
+        ...payload,
+        name: newDoc1Name,
+        page_order: firstPartPages as any,
+        notes: `Getrennt von ${activeDoc.name} (Teil 1)`,
       }).select().single();
       
       if (err1) throw err1;
       
       const { data: newDoc2, error: err2 } = await supabase.from("pdf_documents").insert({
-        owner_id: userId,
+        ...payload,
         name: newDoc2Name,
-        storage_path: activeDoc.storage_path,
         page_order: secondPartPages as any,
         notes: `Getrennt von ${activeDoc.name} (Teil 2)`,
-        checked_out_by: userId,
-        checked_out_at: new Date().toISOString(),
-        detected_type_id: activeDoc.detected_type_id,
-        matched_keywords: activeDoc.matched_keywords,
       }).select().single();
       
       if (err2) throw err2;
@@ -465,14 +484,20 @@ const AIPage = () => {
         
         if (deleteError) console.warn("Delete error:", deleteError);
         
+        const insertPayload: any = {
+          document_id: activeDoc.id, 
+          page_index: pageIndex,
+          ocr_text: words.map(w => w.text).join(" "), 
+          ocr_blocks: words as any,
+        };
+        
+        if (currentTenant?.id) {
+          insertPayload.tenant_id = currentTenant.id;
+        }
+        
         const { error: insertError } = await supabase
           .from("pdf_pages")
-          .insert({
-            document_id: activeDoc.id, 
-            page_index: pageIndex,
-            ocr_text: words.map(w => w.text).join(" "), 
-            ocr_blocks: words as any,
-          });
+          .insert(insertPayload);
         
         if (insertError) console.warn("Insert error:", insertError);
         
@@ -577,11 +602,15 @@ const AIPage = () => {
           pageTexts[i] = words.map(w => w.text).join(" ");
           
           await supabase.from("pdf_pages").delete().eq("document_id", document.id).eq("page_index", pageIdx);
-          await supabase.from("pdf_pages").insert({
+          
+          const insertPayload: any = {
             document_id: document.id, page_index: pageIdx,
             ocr_text: words.map(w => w.text).join(" "), 
             ocr_blocks: words as any,
-          });
+          };
+          if (currentTenant?.id) insertPayload.tenant_id = currentTenant.id;
+          
+          await supabase.from("pdf_pages").insert(insertPayload);
         } else {
           newCache[pageIdx] = [];
           pageTexts[i] = "";
@@ -838,10 +867,17 @@ const AIPage = () => {
       const buf = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       const order: PageMeta[] = Array.from({ length: pdf.numPages }, (_, i) => ({ idx: i, rotation: 0 }));
-      const { data, error } = await supabase.from("pdf_documents").insert({
+      
+      const insertPayload: any = {
         owner_id: userId, name: file.name, storage_path: path, page_order: order as any, notes: "",
         checked_out_by: userId, checked_out_at: new Date().toISOString(),
-      }).select().single();
+      };
+      
+      if (currentTenant?.id) {
+        insertPayload.tenant_id = currentTenant.id;
+      }
+      
+      const { data, error } = await supabase.from("pdf_documents").insert(insertPayload).select().single();
       if (error) throw error;
       toast.success("PDF hochgeladen");
       await loadDocs();
@@ -935,12 +971,18 @@ const AIPage = () => {
   const addType = async () => {
     const name = newTypeName.trim();
     if (!name) return;
-    const { data, error } = await supabase.from("document_types").insert({ 
+    
+    const insertPayload: any = { 
       name, 
       created_by: userId,
       split_enabled: newTypeSplitEnabled,
       split_regex: newTypeSplitRegex || null
-    }).select().single();
+    };
+    if (currentTenant?.id) {
+      insertPayload.tenant_id = currentTenant.id;
+    }
+    
+    const { data, error } = await supabase.from("document_types").insert(insertPayload).select().single();
     if (error) { toast.error(error.message); return; }
     setNewTypeName("");
     setNewTypeSplitRegex("");
@@ -965,7 +1007,16 @@ const AIPage = () => {
   const addKeyword = async (typeId: string) => {
     const kw = (newKeywordByType[typeId] || "").trim();
     if (!kw) return;
-    const { data, error } = await supabase.from("document_type_keywords").insert({ type_id: typeId, keyword: kw }).select().single();
+    
+    const insertPayload: any = { 
+      type_id: typeId, 
+      keyword: kw 
+    };
+    if (currentTenant?.id) {
+      insertPayload.tenant_id = currentTenant.id;
+    }
+    
+    const { data, error } = await supabase.from("document_type_keywords").insert(insertPayload).select().single();
     if (error) { toast.error(error.message); return; }
     setKeywords(p => [...p, data as Keyword]);
     setNewKeywordByType(p => ({ ...p, [typeId]: "" }));
@@ -981,6 +1032,18 @@ const AIPage = () => {
     setKeywords(p => p.filter(k => k.id !== id));
   };
 
+  // WICHTIG: Während der Tenant geladen wird, zeige einen Ladebildschirm
+  if (tenantLoading) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Lade Mandant...</span>
+        </div>
+      </AdminLayout>
+    );
+  }
+
   /* ---------- RENDER ---------- */
   return (
     <AdminLayout>
@@ -993,6 +1056,11 @@ const AIPage = () => {
             <p className="text-xs sm:text-sm text-muted-foreground">
               PDFs hochladen, Seiten bearbeiten, einzelne Wörter übernehmen.
             </p>
+            {currentTenant && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Mandant: <span className="font-medium">{currentTenant.name}</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -1383,7 +1451,7 @@ const AIPage = () => {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
-                        ))
+                        ))}
                       )}
                     </div>
                     <div className="flex gap-2">
