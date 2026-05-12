@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/admin/NotificationBell";
+import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
 import { cn } from "@/lib/utils";
 
 type AppRole = "admin" | "editor" | "guest";
