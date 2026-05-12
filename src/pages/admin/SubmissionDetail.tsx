@@ -10,37 +10,84 @@ import { ArrowLeft, Download, Printer, FileText } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { useTenant } from "@/contexts/TenantContext";
 
 const SubmissionDetail = () => {
   const { submissionId } = useParams();
   const navigate = useNavigate();
+  const { currentTenant, isTenantAdmin } = useTenant();
   const [sub, setSub] = useState<any>(null);
   const [form, setForm] = useState<any>(null);
   const [fields, setFields] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!submissionId) return;
+    if (!submissionId || !currentTenant?.id) return;
+    
     const load = async () => {
-      const { data: s } = await supabase.from("form_submissions").select("*").eq("id", submissionId).maybeSingle();
-      if (!s) { toast.error("Nicht gefunden"); return; }
-      setSub(s);
-      const [fr, ff] = await Promise.all([
-        supabase.from("forms").select("*").eq("id", s.form_id).maybeSingle(),
-        supabase.from("form_fields").select("*").eq("form_id", s.form_id).order("position"),
-      ]);
-      setForm(fr.data); setFields(ff.data ?? []);
-      // Mark as read
-      if (!s.read_at) {
-        await supabase.from("form_submissions").update({ read_at: new Date().toISOString() }).eq("id", s.id);
+      setLoading(true);
+      
+      // 🔑 Submission mit tenant_id Filter laden
+      const { data: s, error: subError } = await supabase
+        .from("form_submissions")
+        .select("*")
+        .eq("id", submissionId)
+        .eq("tenant_id", currentTenant.id)
+        .maybeSingle();
+      
+      if (subError || !s) { 
+        toast.error("Eintrag nicht gefunden oder kein Zugriff"); 
+        setLoading(false);
+        return; 
       }
+      
+      setSub(s);
+      
+      // 🔑 Formular mit tenant_id Filter laden
+      const { data: fr, error: formError } = await supabase
+        .from("forms")
+        .select("*")
+        .eq("id", s.form_id)
+        .eq("tenant_id", currentTenant.id)
+        .maybeSingle();
+      
+      if (formError) console.error("Formular Fehler:", formError);
+      setForm(fr?.data ?? fr);
+      
+      // Formularfelder laden (braucht keinen tenant_id Filter, da über form_id verknüpft)
+      const { data: ff } = await supabase
+        .from("form_fields")
+        .select("*")
+        .eq("form_id", s.form_id)
+        .order("position");
+      
+      setFields(ff ?? []);
+      
+      // Als gelesen markieren (nur wenn der Benutzer Admin ist)
+      if (!s.read_at && isTenantAdmin) {
+        await supabase
+          .from("form_submissions")
+          .update({ read_at: new Date().toISOString() })
+          .eq("id", s.id)
+          .eq("tenant_id", currentTenant.id);
+      }
+      
+      setLoading(false);
     };
+    
     load();
-  }, [submissionId]);
+  }, [submissionId, currentTenant?.id, isTenantAdmin]);
 
   const updateNote = async (note: string) => {
+    if (!currentTenant?.id) return;
     setSub((p: any) => ({ ...p, internal_note: note }));
-    await supabase.from("form_submissions").update({ internal_note: note }).eq("id", sub.id);
+    const { error } = await supabase
+      .from("form_submissions")
+      .update({ internal_note: note })
+      .eq("id", sub.id)
+      .eq("tenant_id", currentTenant.id);
+    if (error) toast.error("Notiz konnte nicht gespeichert werden");
   };
 
   const exportPDF = async () => {
@@ -61,7 +108,45 @@ const SubmissionDetail = () => {
     }
   };
 
-  if (!sub) return <AdminLayout><div className="animate-pulse p-8">Lade...</div></AdminLayout>;
+  // Kein Mandant ausgewählt
+  if (!currentTenant) {
+    return (
+      <AdminLayout>
+        <div className="space-y-4">
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // Ladezustand
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="animate-pulse p-8 text-center text-muted-foreground">
+          Lade Eintrag...
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // Kein Eintrag gefunden
+  if (!sub) {
+    return (
+      <AdminLayout>
+        <div className="space-y-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4 mr-2" /> Zurück
+          </Button>
+          <Card className="p-12 text-center text-muted-foreground">
+            <p>Eintrag nicht gefunden oder Sie haben keine Berechtigung dafür.</p>
+          </Card>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>
@@ -80,24 +165,29 @@ const SubmissionDetail = () => {
           </div>
         </div>
 
+        {/* Mandant Info (optional) */}
+        <div className="text-xs text-muted-foreground px-1">
+          Mandant: <span className="font-medium">{currentTenant.name}</span>
+        </div>
+
         <Card className="p-8" ref={printRef}>
           <div className="space-y-4">
             <div className="flex items-start justify-between border-b pb-4">
               <div>
                 <h1 className="text-2xl font-bold flex items-center gap-2">
-                  <FileText className="h-6 w-6" /> {form?.title}
+                  <FileText className="h-6 w-6" /> {form?.title || "Formular"}
                 </h1>
                 <p className="text-sm text-muted-foreground mt-1">
                   Eingegangen am {new Date(sub.created_at).toLocaleString("de-DE")}
                 </p>
               </div>
               <Badge variant={sub.status === "confirmed" ? "default" : sub.status === "cancelled" ? "destructive" : "secondary"}>
-                {sub.status}
+                {sub.status === "confirmed" ? "Bestätigt" : sub.status === "cancelled" ? "Abgelehnt" : "Offen"}
               </Badge>
             </div>
 
             <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-3">
-              {fields.filter(f => f.field_type !== "html").map((f) => {
+              {fields.filter((f: any) => f.field_type !== "html").map((f: any) => {
                 const v = sub.data[f.field_name];
                 return (
                   <div key={f.id} className="break-inside-avoid">
@@ -119,16 +209,19 @@ const SubmissionDetail = () => {
           </div>
         </Card>
 
-        <Card className="p-6">
-          <label className="text-xs font-bold uppercase text-muted-foreground">Interne Notiz bearbeiten</label>
-          <Textarea
-            className="mt-2"
-            rows={4}
-            value={sub.internal_note || ""}
-            onChange={(e) => updateNote(e.target.value)}
-            placeholder="Interne Bemerkungen..."
-          />
-        </Card>
+        {/* Nur Tenant-Admins dürfen Notizen bearbeiten */}
+        {isTenantAdmin && (
+          <Card className="p-6">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Interne Notiz bearbeiten</label>
+            <Textarea
+              className="mt-2"
+              rows={4}
+              value={sub.internal_note || ""}
+              onChange={(e) => updateNote(e.target.value)}
+              placeholder="Interne Bemerkungen..."
+            />
+          </Card>
+        )}
       </div>
     </AdminLayout>
   );
