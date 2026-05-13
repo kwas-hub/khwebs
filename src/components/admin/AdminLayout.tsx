@@ -25,7 +25,6 @@ const allItems = [
   { title: "Users", url: "/admin/users", icon: UsersIcon, end: false, roles: ["admin"] as AppRole[] },
 ];
 
-// Zustand der Sidebar im localStorage speichern
 const SIDEBAR_STORAGE_KEY = "admin-sidebar-collapsed";
 
 const AdminLayout = ({ children }: { children: ReactNode }) => {
@@ -94,7 +93,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#09090b] text-foreground flex flex-col md:flex-row">
-      {/* DESKTOP SIDEBAR (zuklappbar) */}
+      {/* DESKTOP SIDEBAR */}
       <aside
         className={cn(
           "hidden md:flex flex-col border-r border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 h-screen transition-all duration-300 ease-in-out",
@@ -154,11 +153,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           className="absolute -right-3 top-20 bg-primary text-primary-foreground rounded-full p-1 shadow-md hover:scale-110 transition-transform duration-200 z-50"
           title={isSidebarCollapsed ? "Ausklappen" : "Einklappen"}
         >
-          {isSidebarCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <ChevronLeft className="w-4 h-4" />
-          )}
+          {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
       </aside>
 
@@ -206,24 +201,23 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0">
-        {/* DESKTOP HEADER - mit TenantSwitcher */}
-        <header className="hidden md:flex h-16 items-center justify-between px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
+        {/* DESKTOP HEADER - MIT TENANTSWITCHER */}
+        <header className="hidden md:flex h-16 items-center justify-between px-6 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
           {/* Linke Seite: Live System Status */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             Live System
           </div>
 
-          {/* Rechte Seite: TenantSwitcher + Benachrichtigungen + Theme */}
+          {/* Rechte Seite: TenantSwitcher + Benachrichtigungen + Theme + Rolle */}
           <div className="flex items-center gap-4">
             <TenantSwitcher />
-            <div className="h-4 w-px bg-border/60" />
+            <div className="h-5 w-px bg-border/60" />
             <NotificationBell />
             <ThemeToggle />
+            <div className="h-5 w-px bg-border/60 hidden lg:block" />
             <div className="text-xs text-muted-foreground hidden lg:block">
               <span className="font-medium capitalize">{role}</span>
-              <span className="mx-1">•</span>
-              <span>Angemeldet</span>
             </div>
           </div>
         </header>
