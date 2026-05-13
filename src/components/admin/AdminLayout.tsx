@@ -21,7 +21,7 @@ const allItems = [
   { title: "Formulare", url: "/admin/formulare", icon: FileText, end: false, roles: ["admin", "editor"] as AppRole[] },
   { title: "AI", url: "/admin/ai", icon: Sparkles, end: false, roles: ["admin", "editor"] as AppRole[] },
   { title: "API", url: "/admin/api-settings", icon: Plug, end: false, roles: ["admin", "editor"] as AppRole[] },
-  { title: "Mandanten", url: "/admin/tenants", icon: Building2, end: false, roles: ["admin", "editor"] as AppRole[] },
+  { title: "Mandanten", url: "/admin/tenants", icon: Building2, end: false, roles: ["admin"] as AppRole[] },
   { title: "Users", url: "/admin/users", icon: UsersIcon, end: false, roles: ["admin"] as AppRole[] },
 ];
 
@@ -34,19 +34,16 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
   const { session, role, status, loading, signOut } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    // Initialen Zustand aus localStorage laden
     const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
     return saved === "true";
   });
 
-  // Redirect immediately when session disappears (logout)
   useEffect(() => {
     if (!loading && !session) navigate("/auth", { replace: true });
   }, [loading, session, navigate]);
 
   useEffect(() => { setIsMobileMenuOpen(false); }, [location]);
 
-  // Sidebar-Zustand speichern
   useEffect(() => {
     localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
@@ -104,7 +101,6 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           isSidebarCollapsed ? "w-20" : "w-72"
         )}
       >
-        {/* Logo / Header Bereich */}
         <div className={cn(
           "flex items-center gap-3 px-2 mb-10 mt-6 transition-all duration-300",
           isSidebarCollapsed ? "justify-center" : "px-2"
@@ -120,7 +116,6 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           )}
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 space-y-1 px-2">
           {items.map((item) => (
             <NavLink
@@ -140,7 +135,6 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           ))}
         </nav>
 
-        {/* Footer Bereich mit Abmelden-Button */}
         <div className="mt-auto space-y-2 pt-6 border-t border-border/50 mb-6">
           <button
             onClick={handleLogout}
@@ -155,7 +149,6 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
           </button>
         </div>
 
-        {/* Collapse / Expand Button */}
         <button
           onClick={toggleSidebar}
           className="absolute -right-3 top-20 bg-primary text-primary-foreground rounded-full p-1 shadow-md hover:scale-110 transition-transform duration-200 z-50"
@@ -213,14 +206,26 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="hidden md:flex h-16 items-center justify-end px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4"> 
+        {/* DESKTOP HEADER - mit TenantSwitcher */}
+        <header className="hidden md:flex h-16 items-center justify-between px-10 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
+          {/* Linke Seite: Live System Status */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             Live System
           </div>
-          <div className="h-4 w-px bg-border/60 mx-2" />
-          <NotificationBell />
-          <ThemeToggle />
+
+          {/* Rechte Seite: TenantSwitcher + Benachrichtigungen + Theme */}
+          <div className="flex items-center gap-4">
+            <TenantSwitcher />
+            <div className="h-4 w-px bg-border/60" />
+            <NotificationBell />
+            <ThemeToggle />
+            <div className="text-xs text-muted-foreground hidden lg:block">
+              <span className="font-medium capitalize">{role}</span>
+              <span className="mx-1">•</span>
+              <span>Angemeldet</span>
+            </div>
+          </div>
         </header>
 
         <div className={cn(
