@@ -168,7 +168,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="p-1.5 hover:bg-secondary rounded-lg transition-colors bg-secondary/50"
-        >
+        >test
           {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </header>
