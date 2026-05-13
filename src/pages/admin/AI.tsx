@@ -1028,7 +1028,16 @@ const AIPage = () => {
             {activeDoc && (
               <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr_1fr] gap-6">
                 {/* Linke Spalte: Seitenübersicht */}
-                <AdminCard title="Seiten" padding="sm" className="h-[calc(100vh-280px)] flex flex-col">
+                <AdminCard title="Seiten" padding="sm" className="h-[calc(100vh-280px)] flex flex-col"
+                  actions={
+                    <div className="flex gap-2">
+                      <Button size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={runOCRForAllPages} disabled={ocrRunning}>
+                        <Sparkles className="h-3 w-3 mr-1" /> OCR starten
+                      </Button>
+                    </div>
+                  }
+                  >
+                    
                   <div className="p-2 space-y-2 overflow-y-auto flex-1">
                     {/* OCR-Fortschritt */}
                     {ocrRunning && (
@@ -1097,6 +1106,9 @@ const AIPage = () => {
                     <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={rotateCurrentPage}>
                       <RotateCw className="h-3 w-3 mr-1" /> Drehen
                     </Button>
+                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={manualSplitAtCurrentPage}>
+                        <Scissors className="h-3 w-3 mr-1" /> Trennen
+                    </Button>
                     <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase text-destructive hover:text-destructive" onClick={deleteCurrentPage}>
                       <Trash2 className="h-3 w-3 mr-1" /> Löschen
                     </Button>
@@ -1109,9 +1121,6 @@ const AIPage = () => {
                   padding="sm"
                   actions={
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={manualSplitAtCurrentPage}>
-                        <Scissors className="h-3 w-3 mr-1" /> Trennen
-                      </Button>
                       <Button size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={runOCRForAllPages} disabled={ocrRunning}>
                         <Sparkles className="h-3 w-3 mr-1" /> OCR starten
                       </Button>
