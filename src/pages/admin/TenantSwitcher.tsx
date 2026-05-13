@@ -12,13 +12,36 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Building2, Check, ChevronDown, Plus, Settings, Shield, User, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 
 export const TenantSwitcher = () => {
-  const { tenants, currentTenant, setCurrentTenantId, isTenantAdmin } = useTenant();
+  const { tenants, currentTenant, setCurrentTenantId, isTenantAdmin, loading } = useTenant();
   const navigate = useNavigate();
 
+  // Debug: Logge den Zustand
+  useEffect(() => {
+    console.log("TenantSwitcher - State:", {
+      loading,
+      tenantsCount: tenants.length,
+      tenants: tenants.map(t => ({ id: t.id, name: t.name, role: t.role })),
+      currentTenant: currentTenant ? { id: currentTenant.id, name: currentTenant.name } : null,
+      isTenantAdmin
+    });
+  }, [tenants, currentTenant, loading, isTenantAdmin]);
+
+  // Wenn noch geladen wird, zeige nichts
+  if (loading) {
+    console.log("TenantSwitcher - Loading...");
+    return null;
+  }
+
   // Wenn keine Mandanten vorhanden sind, zeige nichts
-  if (tenants.length === 0) return null;
+  if (tenants.length === 0) {
+    console.log("TenantSwitcher - Keine Mandanten");
+    return null;
+  }
+
+  console.log("TenantSwitcher - Rendere mit", tenants.length, "Mandanten");
 
   const adminTenants = tenants.filter(t => t.role === "admin");
   const memberTenants = tenants.filter(t => t.role === "member");
@@ -41,7 +64,7 @@ export const TenantSwitcher = () => {
               )}
             </>
           ) : (
-            <span className="text-muted-foreground">Kein Mandant</span>
+            <span className="text-muted-foreground">Mandant wählen</span>
           )}
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
@@ -65,7 +88,10 @@ export const TenantSwitcher = () => {
             {adminTenants.map((tenant) => (
               <DropdownMenuItem
                 key={tenant.id}
-                onClick={() => setCurrentTenantId(tenant.id)}
+                onClick={() => {
+                  console.log("Wechsle zu Mandant:", tenant.name, tenant.id);
+                  setCurrentTenantId(tenant.id);
+                }}
                 className="flex items-center justify-between cursor-pointer py-2.5"
               >
                 <div className="flex flex-col">
@@ -101,7 +127,10 @@ export const TenantSwitcher = () => {
             {memberTenants.map((tenant) => (
               <DropdownMenuItem
                 key={tenant.id}
-                onClick={() => setCurrentTenantId(tenant.id)}
+                onClick={() => {
+                  console.log("Wechsle zu Mandant:", tenant.name, tenant.id);
+                  setCurrentTenantId(tenant.id);
+                }}
                 className="flex items-center justify-between cursor-pointer py-2.5"
               >
                 <div className="flex flex-col">
