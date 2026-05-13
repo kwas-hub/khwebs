@@ -1119,13 +1119,6 @@ const AIPage = () => {
                 <AdminCard 
                   title="Editor" 
                   padding="sm"
-                  actions={
-                    <div className="flex gap-2">
-                      <Button size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={runOCRForAllPages} disabled={ocrRunning}>
-                        <Sparkles className="h-3 w-3 mr-1" /> OCR starten
-                      </Button>
-                    </div>
-                  }
                   className="h-[calc(100vh-280px)] flex flex-col"
                 >
                   <div className="space-y-4 flex-1 flex flex-col">
