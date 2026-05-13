@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/admin/NotificationBell";
-import { TenantSwitcher } from "@/pages/admin/TenantSwitcher";
+import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
 import { cn } from "@/lib/utils";
 
 type AppRole = "admin" | "editor" | "guest";
@@ -157,15 +157,11 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </button>
       </aside>
 
-      {/* MOBILE HEADER */}
+      {/* MOBILE HEADER - NUR MIT MENÜ BUTTON, KEINE BENACHRICHTIGUNGEN/TOGGLE (sind in Bottom Nav) */}
       <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-border/50 bg-background/80 backdrop-blur-lg sticky top-0 z-50">
         <div className="flex items-center gap-2">
-          <ThemeToggle />
-          <NotificationBell />
-        </div>
-        <div className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-primary" />
-          <span className="font-bold text-sm tracking-tight">Admin</span>
+          <span className="font-bold text-sm tracking-tight">Admin Panel</span>
         </div>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="p-1.5 hover:bg-secondary rounded-lg transition-colors bg-secondary/50">
@@ -185,7 +181,8 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
             <div className="flex-1 flex flex-col justify-center gap-6">
               {items.map((item) => (
                 <NavLink key={item.url} to={item.url} end={item.end}
-                  className="flex items-center gap-4 text-2xl font-bold transition-all active:scale-95">
+                  className="flex items-center gap-4 text-2xl font-bold transition-all active:scale-95"
+                  onClick={() => setIsMobileMenuOpen(false)}>
                   <item.icon size={28} className="text-primary" />
                   {item.title}
                 </NavLink>
@@ -201,8 +198,8 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col min-w-0">
-        {/* DESKTOP HEADER - MIT TENANTSWITCHER */}
-        <header className="flex h-16 items-center justify-between px-6 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
+        {/* DESKTOP HEADER */}
+        <header className="hidden md:flex h-16 items-center justify-between px-6 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
           {/* Linke Seite: Live System Status + TenantSwitcher */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
@@ -211,7 +208,7 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
             </div>
             <TenantSwitcher />
           </div>
-        
+
           {/* Rechte Seite: Benachrichtigungen + Theme + Rolle */}
           <div className="flex items-center gap-4">
             <NotificationBell />
@@ -232,18 +229,31 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </div>
       </main>
 
-      {/* MOBILE BOTTOM NAVIGATION */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-xl border-t border-border/50 px-2 flex items-center justify-around z-50">
-        {items.map((item) => (
-          <NavLink key={item.url} to={item.url} end={item.end}
-            className={({ isActive }) => cn(
-              "flex flex-col items-center gap-1 transition-all duration-200",
-              isActive ? "text-primary scale-110" : "text-muted-foreground opacity-60"
-            )}>
-            <item.icon size={20} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">{item.title.split(' ')[0]}</span>
-          </NavLink>
-        ))}
+      {/* MOBILE BOTTOM NAVIGATION - HIER SIND BENACHRICHTIGUNGEN UND THEME TOGGLE */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-xl border-t border-border/50 px-4 py-2 flex items-center justify-around z-50">
+        {/* Navigation Items */}
+        <div className="flex items-center justify-around flex-1">
+          {items.slice(0, 4).map((item) => (
+            <NavLink key={item.url} to={item.url} end={item.end}
+              className={({ isActive }) => cn(
+                "flex flex-col items-center gap-1 transition-all duration-200 p-2 rounded-lg",
+                isActive ? "text-primary" : "text-muted-foreground opacity-60"
+              )}
+              onClick={() => setIsMobileMenuOpen(false)}>
+              <item.icon size={20} />
+              <span className="text-[9px] font-bold uppercase tracking-tighter">{item.title.split(' ')[0]}</span>
+            </NavLink>
+          ))}
+        </div>
+        
+        {/* Trennlinie */}
+        <div className="h-8 w-px bg-border/60 mx-1" />
+        
+        {/* Rechte Icons: Benachrichtigungen + Theme Toggle */}
+        <div className="flex items-center gap-3">
+          <NotificationBell />
+          <ThemeToggle />
+        </div>
       </nav>
     </div>
   );
