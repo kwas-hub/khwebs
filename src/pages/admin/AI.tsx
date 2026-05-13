@@ -12,11 +12,19 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, MoveUp, MoveDown } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, MoveUp, MoveDown } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
-import { AdminPageHeader, AdminCard, AdminSection, AdminContentWrapper, AdminFormRow, AdminFieldGroup } from "@/components/admin";
+import {
+  AdminPageHeader,
+  AdminCard,
+  AdminSection,
+  AdminContentWrapper,
+  AdminFormRow,
+  AdminFieldGroup,
+  AdminDivider,
+} from "@/components/admin";
 
 // PDF.js Worker Konfiguration
 const pdfWorkerUrl = new URL(
@@ -831,7 +839,10 @@ const AIPage = () => {
   };
 
   const addType = async () => {
-    if (!userId || !currentTenant?.id) return;
+    if (!userId || !currentTenant?.id) {
+      toast.error("Kein Mandant ausgewählt");
+      return;
+    }
     const name = newTypeName.trim();
     if (!name) return;
     const { data, error } = await supabase.from("document_types").insert({ 
@@ -882,14 +893,38 @@ const AIPage = () => {
     setKeywords(p => p.filter(k => k.id !== id));
   };
 
-  if (tenantLoading) return <AdminLayout><div className="animate-pulse p-8">Lade Mandant...</div></AdminLayout>;
+  // Cleanup bei unmount
+  useEffect(() => {
+    return () => {
+      if (ocrAbortControllerRef.current) {
+        ocrAbortControllerRef.current.abort();
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    };
+  }, []);
+
+  if (tenantLoading) {
+    return (
+      <AdminLayout>
+        <AdminContentWrapper>
+          <AdminCard className="p-12 text-center">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+            <p className="text-muted-foreground">Lade Mandant...</p>
+          </AdminCard>
+        </AdminContentWrapper>
+      </AdminLayout>
+    );
+  }
 
   if (!currentTenant) {
     return (
       <AdminLayout>
         <AdminContentWrapper>
-          <AdminPageHeader icon={Sparkles} title="AI / OCR" />
+          <AdminPageHeader icon={Sparkles} title="AI / OCR" description="PDFs hochladen, Seiten bearbeiten und Texte extrahieren." />
           <AdminCard className="p-12 text-center text-muted-foreground">
+            <Sparkles className="h-12 w-12 mx-auto mb-4 opacity-30" />
             <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
           </AdminCard>
         </AdminContentWrapper>
@@ -903,7 +938,8 @@ const AIPage = () => {
         <AdminPageHeader 
           icon={Sparkles} 
           title="AI / OCR" 
-          description="PDFs hochladen, Seiten bearbeiten und Texte extrahieren."
+          description={`PDFs hochladen, Seiten bearbeiten und Texte extrahieren – Mandant: ${currentTenant.name}`}
+          badge={`${docs.length} Dokument(e)`}
           actions={
             <div className="flex gap-2">
               <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
@@ -916,13 +952,21 @@ const AIPage = () => {
         />
 
         <Tabs value={tab} onValueChange={setTab} className="w-full">
-          <TabsList className="bg-muted/50 border mb-6">
-            <TabsTrigger value="dokumente"><FileText className="h-4 w-4 mr-2" />Dokumente</TabsTrigger>
-            <TabsTrigger value="eigenschaften"><Settings className="h-4 w-4 mr-2" />Eigenschaften</TabsTrigger>
+          <TabsList className="mb-6">
+            <TabsTrigger value="dokumente">
+              <FileText className="h-4 w-4 mr-2" />
+              Dokumente
+            </TabsTrigger>
+            <TabsTrigger value="eigenschaften">
+              <Settings className="h-4 w-4 mr-2" />
+              Eigenschaften
+            </TabsTrigger>
           </TabsList>
 
+          {/* DOKUMENTE TAB */}
           <TabsContent value="dokumente" className="space-y-6">
-            <div className="flex flex-wrap items-center gap-3 mb-4">
+            {/* Dokumentenauswahl */}
+            <div className="flex flex-wrap items-center gap-3">
               <div className="relative w-full sm:w-80">
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -938,7 +982,7 @@ const AIPage = () => {
                     {docs.length === 0 && <div className="p-4 text-xs text-muted-foreground text-center">Keine Dokumente vorhanden</div>}
                     {myCheckedOutDocs.length > 0 && (
                       <>
-                        <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted/30 border-b">Meine Dokumente</div>
+                        <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted/30 border-b">📄 Meine Dokumente</div>
                         {myCheckedOutDocs.map(d => (
                           <div key={d.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-accent cursor-pointer group">
                             <span className="flex-1 text-sm truncate" onClick={() => { selectDocAndPage(d.id, 0); setIsDropdownOpen(false); }}>{d.name}</span>
@@ -951,7 +995,7 @@ const AIPage = () => {
                     )}
                     {otherDocs.length > 0 && (
                       <>
-                        <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted/30 border-t border-b">Andere Dokumente</div>
+                        <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted/30 border-t border-b">📁 Andere Dokumente</div>
                         {otherDocs.map(d => (
                           <div key={d.id} className="px-4 py-2.5 hover:bg-accent cursor-pointer" onClick={() => { selectDocAndPage(d.id, 0); setIsDropdownOpen(false); }}>
                             <span className="text-sm truncate block">{d.name}</span>
@@ -965,20 +1009,30 @@ const AIPage = () => {
 
               {activeDoc && (
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => releaseDoc(activeDoc.id)}><Undo2 className="h-4 w-4 mr-2" />Zurücklegen</Button>
-                  <Button variant="outline" size="sm" onClick={exportEdited}><Download className="h-4 w-4 mr-2" />Export</Button>
-                  <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-10 w-10"><Trash2 className="h-4 w-4" /></Button>
+                  <Button variant="outline" size="sm" onClick={() => releaseDoc(activeDoc.id)}>
+                    <Undo2 className="h-4 w-4 mr-2" />
+                    Zurücklegen
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={exportEdited}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export
+                  </Button>
+                  <Button variant="destructive" size="icon" onClick={deleteDoc} className="h-9 w-9">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               )}
             </div>
 
+            {/* Drei-Spalten-Layout */}
             {activeDoc && (
-              <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr_1fr] gap-6 items-start">
-                {/* SPALTE 1: SEITEN */}
+              <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr_1fr] gap-6">
+                {/* Linke Spalte: Seitenübersicht */}
                 <AdminCard title="Seiten" padding="sm" className="h-[calc(100vh-280px)] flex flex-col">
                   <div className="p-2 space-y-2 overflow-y-auto flex-1">
+                    {/* OCR-Fortschritt */}
                     {ocrRunning && (
-                      <div className="mb-4 p-3 bg-primary/5 rounded-lg border border-primary/10">
+                      <div className="mb-4 p-3 bg-primary/5 rounded-xl border border-primary/10">
                         <div className="flex justify-between text-[10px] font-bold uppercase mb-2">
                           <span className="text-primary">{ocrStatusText}</span>
                           <span>{ocrProgressPercent}%</span>
@@ -987,9 +1041,10 @@ const AIPage = () => {
                       </div>
                     )}
                     
+                    {/* Trennpunkt-Hinweis */}
                     {splitInfo && (
-                      <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg mb-4">
-                        <div className="text-xs font-bold text-yellow-600 uppercase mb-1">Trennpunkt gefunden</div>
+                      <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-xl mb-4">
+                        <div className="text-xs font-bold text-yellow-600 uppercase mb-1">✂️ Trennpunkt gefunden</div>
                         <div className="text-[10px] text-muted-foreground mb-2">"{splitInfo.match}" auf Seite {splitInfo.pageIndex + 1}</div>
                         <Button size="sm" className="w-full h-8 text-[10px] font-bold uppercase" onClick={() => performSplit(splitInfo)}>
                           <Scissors className="h-3 w-3 mr-2" /> Jetzt trennen
@@ -997,22 +1052,31 @@ const AIPage = () => {
                       </div>
                     )}
 
-                    <div className="space-y-3">
+                    {/* Seitenliste */}
+                    <div className="space-y-2">
                       {pageOrder.map((pm, idx) => {
                         const isActive = activePageOrderIdx === idx;
                         return (
                           <div 
                             key={idx} 
                             onClick={() => setActivePageOrderIdx(idx)}
-                            className={`relative group p-2 rounded-xl border transition-all cursor-pointer ${isActive ? 'bg-primary/5 border-primary shadow-sm' : 'bg-card hover:bg-muted/50 border-border/50'}`}
+                            className={`relative group p-2 rounded-xl border transition-all cursor-pointer ${
+                              isActive ? 'bg-primary/5 border-primary shadow-sm' : 'bg-card hover:bg-muted/50 border-border/50'
+                            }`}
                           >
                             <div className="flex gap-3 items-center">
                               <div className="w-12 h-16 bg-muted rounded-lg flex items-center justify-center overflow-hidden border border-border/50">
-                                {thumbs[pm.idx] ? <img src={thumbs[pm.idx]} className="w-full h-full object-cover" /> : <FileText className="h-5 w-5 text-muted-foreground/30" />}
+                                {thumbs[pm.idx] ? (
+                                  <img src={thumbs[pm.idx]} className="w-full h-full object-cover" alt={`Seite ${idx + 1}`} />
+                                ) : (
+                                  <FileText className="h-5 w-5 text-muted-foreground/30" />
+                                )}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs font-bold">Seite {idx + 1}</div>
-                                <div className="text-[10px] text-muted-foreground uppercase tracking-tighter">Index: {pm.idx} {pm.rotation !== 0 && `· ${pm.rotation}°`}</div>
+                                <div className="text-[10px] text-muted-foreground uppercase tracking-tighter">
+                                  Index: {pm.idx} {pm.rotation !== 0 && `· ${pm.rotation}°`}
+                                </div>
                               </div>
                               {isActive && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
                             </div>
@@ -1021,45 +1085,73 @@ const AIPage = () => {
                       })}
                     </div>
                   </div>
+                  
+                  {/* Seitenaktionen */}
                   <div className="p-3 border-t bg-muted/20 grid grid-cols-2 gap-2">
-                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={movePageUp} disabled={activePageOrderIdx === 0}><MoveUp className="h-3 w-3 mr-1" /> Hoch</Button>
-                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={movePageDown} disabled={activePageOrderIdx === pageOrder.length - 1}><MoveDown className="h-3 w-3 mr-1" /> Runter</Button>
-                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={rotateCurrentPage}><RotateCw className="h-3 w-3 mr-1" /> Drehen</Button>
-                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase text-destructive hover:text-destructive" onClick={deleteCurrentPage}><Trash2 className="h-3 w-3 mr-1" /> Löschen</Button>
+                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={movePageUp} disabled={activePageOrderIdx === 0}>
+                      <MoveUp className="h-3 w-3 mr-1" /> Hoch
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={movePageDown} disabled={activePageOrderIdx === pageOrder.length - 1}>
+                      <MoveDown className="h-3 w-3 mr-1" /> Runter
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={rotateCurrentPage}>
+                      <RotateCw className="h-3 w-3 mr-1" /> Drehen
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase text-destructive hover:text-destructive" onClick={deleteCurrentPage}>
+                      <Trash2 className="h-3 w-3 mr-1" /> Löschen
+                    </Button>
                   </div>
                 </AdminCard>
 
-                {/* SPALTE 2: EDITOR */}
+                {/* Mittlere Spalte: Editor */}
                 <AdminCard 
                   title="Editor" 
+                  padding="sm"
                   actions={
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={manualSplitAtCurrentPage}><Scissors className="h-3 w-3 mr-1" /> Trennen</Button>
-                      <Button size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={runOCRForAllPages} disabled={ocrRunning}><Sparkles className="h-3 w-3 mr-1" /> OCR</Button>
+                      <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={manualSplitAtCurrentPage}>
+                        <Scissors className="h-3 w-3 mr-1" /> Trennen
+                      </Button>
+                      <Button size="sm" className="h-8 text-[10px] font-bold uppercase" onClick={runOCRForAllPages} disabled={ocrRunning}>
+                        <Sparkles className="h-3 w-3 mr-1" /> OCR starten
+                      </Button>
                     </div>
                   }
                   className="h-[calc(100vh-280px)] flex flex-col"
                 >
                   <div className="space-y-4 flex-1 flex flex-col">
+                    {/* Erkannter Typ */}
                     <div className="p-3 bg-muted/30 rounded-xl border border-border/50">
-                      <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Erkannter Typ</div>
+                      <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">📌 Erkannter Dokumenttyp</div>
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-sm">{detectedType?.name || "Nicht erkannt"}</span>
-                        {activeDoc.matched_keywords.length > 0 && <Badge variant="secondary" className="text-[9px]">{activeDoc.matched_keywords.length} Treffer</Badge>}
+                        {activeDoc.matched_keywords.length > 0 && (
+                          <Badge variant="secondary" className="text-[9px]">
+                            {activeDoc.matched_keywords.length} Schlagwort(e)
+                          </Badge>
+                        )}
                       </div>
                     </div>
-                    <Textarea 
-                      ref={textareaRef}
-                      value={notes} 
-                      onChange={e => saveNotes(e.target.value)}
-                      className="flex-1 font-mono text-xs resize-none bg-muted/10 border-border/50 p-4 leading-relaxed"
-                      placeholder="Erkannter Text wird hier eingefügt..."
-                    />
-                    <p className="text-[10px] text-muted-foreground italic">Klicke auf Wörter in der Vorschau, um sie einzufügen.</p>
+                    
+                    {/* Notizen / OCR-Text */}
+                    <div className="flex-1 flex flex-col">
+                      <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">📝 Notizen / OCR-Text</div>
+                      <Textarea 
+                        ref={textareaRef}
+                        value={notes} 
+                        onChange={e => saveNotes(e.target.value)}
+                        className="flex-1 font-mono text-xs resize-none bg-muted/10 border-border/50 p-4 leading-relaxed min-h-[200px]"
+                        placeholder="Erkannter Text wird hier eingefügt oder Notizen können manuell hinzugefügt werden..."
+                      />
+                    </div>
+                    
+                    <p className="text-[10px] text-muted-foreground italic text-center">
+                      💡 Klicke auf Wörter in der Vorschau, um sie einzufügen
+                    </p>
                   </div>
                 </AdminCard>
 
-                {/* SPALTE 3: VORSCHAU */}
+                {/* Rechte Spalte: Vorschau */}
                 <AdminCard title="Vorschau" padding="sm" className="h-[calc(100vh-280px)] overflow-hidden flex flex-col">
                   <div className="flex-1 overflow-auto bg-zinc-900/5 rounded-lg relative flex items-center justify-center p-4">
                     <div className="relative inline-block shadow-2xl">
@@ -1070,7 +1162,12 @@ const AIPage = () => {
                           onClick={() => insertAtCursor(word.text)} 
                           title={word.text}
                           className="absolute border border-primary/40 bg-primary/5 hover:bg-primary/20 transition-all cursor-pointer rounded-sm"
-                          style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, width: `${word.w * 100}%`, height: `${word.h * 100}%` }} 
+                          style={{ 
+                            left: `${word.x * 100}%`, 
+                            top: `${word.y * 100}%`, 
+                            width: `${word.w * 100}%`, 
+                            height: `${word.h * 100}%` 
+                          }} 
                         />
                       ))}
                     </div>
@@ -1080,57 +1177,109 @@ const AIPage = () => {
             )}
           </TabsContent>
 
+          {/* EIGENSCHAFTEN TAB */}
           <TabsContent value="eigenschaften" className="space-y-6">
-            <AdminCard title="Neuer Dokumenttyp">
+            {/* Neuer Dokumenttyp */}
+            <AdminCard title="Neuen Dokumenttyp anlegen" icon={Plus}>
               <div className="flex gap-3">
                 <Input 
-                  placeholder="z.B. Rechnung, Lieferschein..." 
+                  placeholder="z.B. Rechnung, Lieferschein, Vertrag..."
                   value={newTypeName}
                   onChange={e => setNewTypeName(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && addType()}
                   className="flex-1"
                 />
-                <Button onClick={addType}><Plus className="h-4 w-4 mr-2" />Anlegen</Button>
+                <Button onClick={addType}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Anlegen
+                </Button>
               </div>
+              <p className="text-[10px] text-muted-foreground mt-2">
+                Dokumenttypen helfen bei der automatischen Klassifizierung Ihrer PDFs.
+              </p>
             </AdminCard>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <AdminCard title="Dokumenttypen" subtitle="Wähle einen Typ, um Schlagwörter zu verwalten.">
+              {/* Dokumenttypen Liste */}
+              <AdminCard 
+                title="Dokumenttypen" 
+                subtitle="Wähle einen Typ, um Schlagwörter zu verwalten"
+                icon={FileText}
+              >
                 <div className="space-y-2">
                   {docTypes.map(t => (
                     <div 
                       key={t.id}
                       onClick={() => setSelectedTypeId(t.id)}
-                      className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${selectedTypeId === t.id ? 'bg-primary/5 border-primary shadow-sm' : 'bg-card hover:bg-muted/50 border-border/50'}`}
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                        selectedTypeId === t.id 
+                          ? 'bg-primary/5 border-primary shadow-sm' 
+                          : 'bg-card hover:bg-muted/50 border-border/50'
+                      }`}
                     >
-                      <span className="font-bold text-sm">{t.name}</span>
+                      <div>
+                        <span className="font-bold text-sm">{t.name}</span>
+                        {t.split_enabled && (
+                          <Badge variant="outline" className="ml-2 text-[9px]">✂️ Trennung aktiv</Badge>
+                        )}
+                      </div>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); renameType(t.id, prompt("Neuer Name:", t.name) || t.name); }}><Settings className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); deleteType(t.id); }}><Trash2 className="h-4 w-4" /></Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8" 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            const newName = prompt("Neuer Name:", t.name);
+                            if (newName) renameType(t.id, newName);
+                          }}
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-destructive" 
+                          onClick={(e) => { e.stopPropagation(); deleteType(t.id); }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))}
-                  {docTypes.length === 0 && <p className="text-center py-8 text-sm text-muted-foreground">Keine Typen definiert.</p>}
+                  {docTypes.length === 0 && (
+                    <div className="text-center py-8 text-sm text-muted-foreground border-2 border-dashed rounded-xl">
+                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      Keine Dokumenttypen definiert
+                    </div>
+                  )}
                 </div>
               </AdminCard>
 
+              {/* Schlagwörter */}
               <AdminCard 
                 title={selectedType ? `Schlagwörter: ${selectedType.name}` : "Schlagwörter"}
-                subtitle="Texte oder Regex, die diesen Typ identifizieren."
+                subtitle="Texte oder Regex, die diesen Typ identifizieren"
+                icon={Settings}
               >
                 {!selectedType ? (
-                  <div className="text-center py-12 text-muted-foreground">Wähle links einen Typ aus.</div>
+                  <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
+                    <Settings className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    Wähle links einen Typ aus
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <div className="flex gap-2">
                       <Input 
-                        placeholder="Neues Schlagwort..." 
+                        placeholder="Neues Schlagwort oder Regex..." 
                         value={newKeywordByType[selectedType.id] || ""}
                         onChange={e => setNewKeywordByType(p => ({ ...p, [selectedType.id]: e.target.value }))}
                         onKeyDown={e => e.key === "Enter" && addKeyword(selectedType.id)}
-                        className="font-mono text-xs"
+                        className="font-mono text-xs flex-1"
                       />
-                      <Button size="sm" onClick={() => addKeyword(selectedType.id)}><Plus className="h-4 w-4" /></Button>
+                      <Button size="sm" onClick={() => addKeyword(selectedType.id)}>
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
                     <div className="grid gap-2">
                       {selectedKeywords.map(k => (
@@ -1138,37 +1287,67 @@ const AIPage = () => {
                           <Input 
                             value={k.keyword} 
                             onChange={e => updateKeyword(k.id, e.target.value)}
-                            className="h-8 font-mono text-xs bg-transparent border-none focus-visible:ring-0"
+                            className="h-8 font-mono text-xs bg-transparent border-none focus-visible:ring-0 flex-1"
                           />
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteKeyword(k.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteKeyword(k.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       ))}
+                      {selectedKeywords.length === 0 && (
+                        <div className="text-center py-6 text-xs text-muted-foreground">
+                          Keine Schlagwörter für diesen Typ
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </AdminCard>
             </div>
 
+            {/* Dokumententrennung */}
             <AdminCard title="Dokumententrennung" icon={Scissors}>
               <AdminSection spacing="sm">
+                {/* Globale Trennung */}
                 <div className="flex items-center gap-3 p-4 bg-muted/30 rounded-xl border border-border/50">
                   <Checkbox id="globalSplit" checked={globalSplitEnabled} onCheckedChange={v => setGlobalSplitEnabled(v as boolean)} />
-                  <Label htmlFor="globalSplit" className="font-bold text-sm">Globale Trennung aktivieren</Label>
+                  <Label htmlFor="globalSplit" className="font-bold text-sm cursor-pointer">🌍 Globale Trennung aktivieren</Label>
                 </div>
+                
                 {globalSplitEnabled && (
-                  <AdminFieldGroup label="Globaler Trenn-Regex" description="Wird auf alle Dokumente angewendet.">
-                    <Input value={globalSplitRegex} onChange={e => setGlobalSplitRegex(e.target.value)} className="font-mono text-xs" placeholder="z.B. ^--- SEITE \d+ ---$" />
+                  <AdminFieldGroup 
+                    label="Globaler Trenn-Regex" 
+                    description="Wird auf alle Dokumente angewendet (Groß-/Kleinschreibung wird ignoriert)"
+                  >
+                    <Input 
+                      value={globalSplitRegex} 
+                      onChange={e => setGlobalSplitRegex(e.target.value)} 
+                      className="font-mono text-xs" 
+                      placeholder="z.B. ^--- SEITE \d+ ---$ oder -----\\s*ANHANG\\s*-----"
+                    />
                   </AdminFieldGroup>
                 )}
                 
-                <div className="pt-4 border-t">
-                  <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4">Typspezifische Trennung</h4>
+                <AdminDivider spacing="md" />
+                
+                {/* Typspezifische Trennung */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4 flex items-center gap-2">
+                    <Scissors className="h-3.5 w-3.5" />
+                    Typspezifische Trennung
+                  </h4>
                   <div className="grid md:grid-cols-2 gap-4">
                     {docTypes.map(t => (
                       <div key={t.id} className="p-4 bg-card border border-border/50 rounded-xl space-y-3">
                         <div className="flex items-center gap-3">
-                          <Checkbox id={`split-${t.id}`} checked={t.split_enabled || false} onCheckedChange={v => saveTypeSplitSettings(t.id, v as boolean, t.split_regex || "")} />
-                          <Label htmlFor={`split-${t.id}`} className="font-bold text-sm">{t.name}</Label>
+                          <Checkbox 
+                            id={`split-${t.id}`} 
+                            checked={t.split_enabled || false} 
+                            onCheckedChange={v => saveTypeSplitSettings(t.id, v as boolean, t.split_regex || "")} 
+                          />
+                          <Label htmlFor={`split-${t.id}`} className="font-bold text-sm cursor-pointer">
+                            {t.name}
+                          </Label>
                         </div>
                         {t.split_enabled && (
                           <Input 
@@ -1180,6 +1359,11 @@ const AIPage = () => {
                         )}
                       </div>
                     ))}
+                    {docTypes.length === 0 && (
+                      <div className="col-span-2 text-center py-6 text-xs text-muted-foreground">
+                        Keine Dokumenttypen vorhanden – erstelle zuerst einen Typ
+                      </div>
+                    )}
                   </div>
                 </div>
               </AdminSection>
