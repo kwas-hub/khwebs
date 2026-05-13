@@ -7,8 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Plus, Trash2, Newspaper, Eye, EyeOff, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Newspaper, Eye, EyeOff, GripVertical, ChevronUp, ChevronDown, Code, Eye as PreviewIcon } from "lucide-react";
 import { useTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -38,6 +39,7 @@ const News = () => {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [activeTab, setActiveTab] = useState<Record<string, "edit" | "preview">>({});
 
   const load = async () => {
     if (!currentTenant) {
@@ -58,6 +60,12 @@ const News = () => {
       toast.error(error.message);
     } else {
       setBlocks(data ?? []);
+      // Initialisiere Tabs für neue Blöcke
+      const newTabs: Record<string, "edit" | "preview"> = {};
+      (data ?? []).forEach((block: Block) => {
+        newTabs[block.id] = "edit";
+      });
+      setActiveTab(newTabs);
     }
     setLoading(false);
   };
@@ -81,13 +89,13 @@ const News = () => {
     
     const nextPosition = blocks.length;
     
-    const { error } = await supabase.from("content_blocks").insert({
+    const { data, error } = await supabase.from("content_blocks").insert({
       title: "Neuer Bereich",
-      content: "",
+      content: "<p>Schreibe hier deinen Text...</p>",
       published: false,
       position: nextPosition,
       tenant_id: currentTenant.id,
-    });
+    }).select().single();
     
     setIsCreating(false);
     
@@ -100,7 +108,11 @@ const News = () => {
       }
     } else {
       toast.success("Bereich erstellt");
-      load();
+      await load();
+      // Setze den Tab auf Edit für den neuen Block
+      if (data) {
+        setActiveTab(prev => ({ ...prev, [data.id]: "edit" }));
+      }
     }
   };
 
@@ -318,21 +330,60 @@ const News = () => {
                   
                   <AdminDivider spacing="sm" />
                   
-                  <AdminFieldGroup label="Inhalt" optional>
-                    <Textarea 
-                      value={block.content} 
-                      onChange={(e) => updateBlock(block.id, { content: e.target.value })} 
-                      placeholder="Schreibe hier deinen Text... Du kannst HTML verwenden für Formatierungen."
-                      rows={8}
-                      disabled={!isTenantAdmin}
-                      className="font-mono text-sm resize-y"
-                    />
-                  </AdminFieldGroup>
+                  {/* Tabs für Editor/Preview */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 border-b">
+                      <button
+                        onClick={() => setActiveTab(prev => ({ ...prev, [block.id]: "edit" }))}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all -mb-px ${
+                          activeTab[block.id] === "edit" 
+                            ? "border-b-2 border-primary text-primary" 
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Code className="h-3.5 w-3.5" />
+                        Editor
+                      </button>
+                      <button
+                        onClick={() => setActiveTab(prev => ({ ...prev, [block.id]: "preview" }))}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all -mb-px ${
+                          activeTab[block.id] === "preview" 
+                            ? "border-b-2 border-primary text-primary" 
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <PreviewIcon className="h-3.5 w-3.5" />
+                        Vorschau
+                      </button>
+                    </div>
+
+                    {/* Editor Tab */}
+                    {activeTab[block.id] === "edit" && (
+                      <Textarea 
+                        value={block.content} 
+                        onChange={(e) => updateBlock(block.id, { content: e.target.value })} 
+                        placeholder="Schreibe hier deinen Text... Du kannst HTML verwenden für Formatierungen."
+                        rows={12}
+                        disabled={!isTenantAdmin}
+                        className="font-mono text-sm resize-y"
+                      />
+                    )}
+
+                    {/* Preview Tab */}
+                    {activeTab[block.id] === "preview" && (
+                      <div className="p-4 bg-muted/20 rounded-lg border min-h-[200px] prose prose-sm max-w-none dark:prose-invert">
+                        <div 
+                          dangerouslySetInnerHTML={{ __html: block.content || "<em class='text-muted-foreground'>Kein Inhalt vorhanden...</em>" }}
+                          className="prose-p:my-2 prose-headings:my-3"
+                        />
+                      </div>
+                    )}
+                  </div>
                   
                   <div className="text-[10px] text-muted-foreground bg-muted/30 p-2 rounded-md">
                     <strong>Tipp:</strong> Du kannst HTML-Tags wie <code className="bg-muted px-1 rounded">&lt;strong&gt;</code>, 
-                    <code className="bg-muted px-1 rounded">&lt;em&gt;</code>, <code className="bg-muted px-1 rounded">&lt;ul&gt;</code> und 
-                    <code className="bg-muted px-1 rounded">&lt;li&gt;</code> verwenden.
+                    <code className="bg-muted px-1 rounded">&lt;em&gt;</code>, <code className="bg-muted px-1 rounded">&lt;ul&gt;</code>, 
+                    <code className="bg-muted px-1 rounded">&lt;li&gt;</code> und <code className="bg-muted px-1 rounded">&lt;a href="..."&gt;</code> verwenden.
                   </div>
                 </div>
               </AdminCard>
