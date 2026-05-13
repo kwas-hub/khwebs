@@ -2,6 +2,7 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";  // ← FEHLENDER IMPORT
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -79,15 +80,15 @@ const Users = () => {
     else { toast.success(`Rolle auf ${ROLE_LABELS[role]} geändert`); load(); }
   };
 
-  const deleteUser = async (userId: string) => {
-    if (userId === userId) {
+  const deleteUser = async (userIdToDelete: string) => {
+    if (userIdToDelete === userId) {
       toast.error("Du kannst dein eigenes Profil nicht löschen");
       return;
     }
     if (!confirm(`Profil wirklich löschen? Der Benutzer kann sich weiterhin anmelden, verliert aber alle Berechtigungen.`)) return;
     
-    await supabase.from("user_roles").delete().eq("user_id", userId);
-    const { error } = await supabase.from("profiles").delete().eq("user_id", userId);
+    await supabase.from("user_roles").delete().eq("user_id", userIdToDelete);
+    const { error } = await supabase.from("profiles").delete().eq("user_id", userIdToDelete);
     if (error) {
       toast.error(error.message);
     } else {
@@ -101,14 +102,6 @@ const Users = () => {
       case "active": return <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />;
       case "blocked": return <XCircle className="h-3.5 w-3.5 text-red-500" />;
       default: return <AlertCircle className="h-3.5 w-3.5 text-amber-500" />;
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "active": return "Aktiv";
-      case "blocked": return "Blockiert";
-      default: return "Neu";
     }
   };
 
