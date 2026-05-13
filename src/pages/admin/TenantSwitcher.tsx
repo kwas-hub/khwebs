@@ -17,30 +17,16 @@ export const TenantSwitcher = () => {
   const { tenants, currentTenant, setCurrentTenantId, isTenantAdmin, loading } = useTenant();
   const navigate = useNavigate();
 
-  // DEBUG: Console Ausgaben
-  console.log("=== TenantSwitcher Debug ===");
-  console.log("loading:", loading);
-  console.log("tenants.length:", tenants.length);
-  console.log("tenants:", tenants);
-  console.log("currentTenant:", currentTenant);
-  console.log("isTenantAdmin:", isTenantAdmin);
-  console.log("===========================");
+  // Wenn noch geladen wird, zeige nichts
+  if (loading) return null;
 
-  if (loading) {
-    console.log("→ Rendere null (loading)");
-    return null;
-  }
-
-  if (tenants.length === 0) {
-    console.log("→ Rendere null (keine Mandanten)");
-    return null;
-  }
-
-  console.log("→ Rendere Dropdown mit", tenants.length, "Mandanten");
+  // Wenn keine Mandanten vorhanden sind, zeige nichts
+  if (tenants.length === 0) return null;
 
   const adminTenants = tenants.filter(t => t.role === "admin");
   const memberTenants = tenants.filter(t => t.role === "member");
 
+  // Zeige immer den Button, auch wenn currentTenant null ist
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -71,6 +57,7 @@ export const TenantSwitcher = () => {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         
+        {/* Admin Mandanten */}
         {adminTenants.length > 0 && (
           <>
             <div className="px-2 py-1.5">
@@ -104,6 +91,7 @@ export const TenantSwitcher = () => {
           </>
         )}
 
+        {/* Member Mandanten */}
         {memberTenants.length > 0 && adminTenants.length > 0 && <DropdownMenuSeparator />}
         
         {memberTenants.length > 0 && (
