@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,11 +12,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Trash2, Clock, CalendarDays, Link as LinkIcon, Mail } from "lucide-react";
+import { Plus, Trash2, Clock, CalendarDays, Link as LinkIcon, Mail, Settings2 } from "lucide-react";
 import { FullCal } from "@/components/admin/FullCal";
 import { EmailTemplateEditor } from "@/components/admin/EmailTemplateEditor";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useTenant } from "@/contexts/TenantContext";
+import { 
+  AdminPageHeader, 
+  AdminCard, 
+  AdminSection, 
+  AdminContentWrapper, 
+  AdminFormRow, 
+  AdminFieldGroup 
+} from "@/components/admin";
 
 const WEEKDAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
@@ -30,7 +37,6 @@ type Appt = {
 };
 type ExtCal = { id: string; tenant_id: string; name: string; url: string; color: string; active: boolean; public_visible: boolean; assigned_user_id: string | null };
 type Profile = { user_id: string; email: string; display_name: string };
-type SiteSettings = { id: string; tenant_id: string; booking_enabled: boolean };
 
 const emptyAppt = (tenantId: string): Partial<Appt> => ({
   appointment_date: new Date().toISOString().slice(0, 10),
@@ -42,7 +48,7 @@ const emptyAppt = (tenantId: string): Partial<Appt> => ({
 });
 
 const Termine = () => {
-  const { isAdmin, isEditor, isGuest } = useUserRole();
+  const { isAdmin, isGuest } = useUserRole();
   const { currentTenant, isTenantAdmin } = useTenant();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [appts, setAppts] = useState<Appt[]>([]);
@@ -66,7 +72,6 @@ const Termine = () => {
     setLoading(true);
     
     try {
-      // 🔑 Alle Abfragen mit tenant_id Filter
       const [s, a, st, ec, pr] = await Promise.all([
         supabase.from("availability_slots").select("*").eq("tenant_id", currentTenant.id).order("weekday").order("start_time"),
         supabase.from("appointments").select("*").eq("tenant_id", currentTenant.id).order("appointment_date").order("appointment_time"),
@@ -81,7 +86,6 @@ const Termine = () => {
         setBookingEnabled(st.data.booking_enabled); 
         setSettingsId(st.data.id); 
       } else if (st.error && st.error.code === 'PGRST116') {
-        // Keine Einstellungen vorhanden -> erstellen
         const { data: newSettings } = await supabase
           .from("site_settings")
           .insert({ tenant_id: currentTenant.id, booking_enabled: true })
@@ -105,7 +109,6 @@ const Termine = () => {
     load(); 
   }, [currentTenant?.id]);
 
-  // ---------- Verfügbarkeit ----------
   const addSlot = async () => {
     if (!currentTenant?.id) return;
     const { error } = await supabase.from("availability_slots").insert({
@@ -147,7 +150,6 @@ const Termine = () => {
     if (error) toast.error(error.message);
   };
 
-  // ---------- Termine ----------
   const updateApptDetails = async (id: string, patch: Partial<Appt>) => {
     if (!currentTenant?.id) return;
     setAppts((p) => p.map((a) => a.id === id ? { ...a, ...patch } : a));
@@ -229,7 +231,6 @@ const Termine = () => {
     setDialogOpen(false); setEditingAppt(null); load();
   };
 
-  // ---------- Externe Kalender ----------
   const saveExtCal = async () => {
     if (!editingCal || !currentTenant?.id) return;
     if (!editingCal.name || !editingCal.url) {
@@ -280,54 +281,40 @@ const Termine = () => {
     [extCals, isGuest]
   );
 
-  // Berechtigungen: Bearbeiten nur für Tenant-Admins oder globale Admins
   const canEdit = isTenantAdmin || isAdmin;
 
-  // Kein Mandant ausgewählt
   if (!currentTenant) {
     return (
       <AdminLayout>
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">Termine</h1>
-          <Card className="p-12 text-center text-muted-foreground">
+        <AdminContentWrapper>
+          <AdminPageHeader icon={CalendarDays} title="Termine" />
+          <AdminCard className="p-12 text-center text-muted-foreground">
             <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
-          </Card>
-        </div>
-      </AdminLayout>
-    );
-  }
-
-  // Ladezustand
-  if (loading) {
-    return (
-      <AdminLayout>
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">Termine</h1>
-          <Card className="p-12 text-center text-muted-foreground">
-            <p>Lade Termine...</p>
-          </Card>
-        </div>
+          </AdminCard>
+        </AdminContentWrapper>
       </AdminLayout>
     );
   }
 
   return (
     <AdminLayout>
-      <div className="space-y-6 text-foreground">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl font-bold">Termine</h1>
-            <p className="text-sm text-muted-foreground">
-              Mandant: <span className="font-medium">{currentTenant.name}</span>
-            </p>
-          </div>
-          {canEdit && (
-            <div className="flex items-center gap-2">
-              <Switch checked={bookingEnabled} onCheckedChange={toggleBooking} />
-              <Label>Buchung im Frontend {bookingEnabled ? "aktiv" : "ausgeblendet"}</Label>
+      <AdminContentWrapper>
+        <AdminPageHeader 
+          icon={CalendarDays} 
+          title="Termine" 
+          description={`Verwalte Termine und Verfügbarkeiten für ${currentTenant.name}`}
+          actions={canEdit && (
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch checked={bookingEnabled} onCheckedChange={toggleBooking} />
+                <Label className="text-xs">Buchung aktiv</Label>
+              </div>
+              <Button onClick={() => { setEditingAppt(emptyAppt(currentTenant.id)); setDialogOpen(true); }} size="sm">
+                <Plus className="mr-2 h-4 w-4" /> Termin erstellen
+              </Button>
             </div>
           )}
-        </div>
+        />
 
         <Tabs defaultValue="calendar" className="w-full">
           <TabsList className="bg-muted/50 border flex-wrap h-auto">
@@ -338,12 +325,11 @@ const Termine = () => {
             {isAdmin && <TabsTrigger value="emails">E-Mail-Vorlagen</TabsTrigger>}
           </TabsList>
 
-          {/* ============= KALENDER ============= */}
-          <TabsContent value="calendar" className="space-y-4 mt-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <Label>Status:</Label>
+          <TabsContent value="calendar" className="space-y-4 mt-6">
+            <div className="flex items-center gap-3 flex-wrap mb-4">
+              <Label className="text-xs font-bold uppercase">Status:</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-44 h-9 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Alle</SelectItem>
                   <SelectItem value="pending">Offen</SelectItem>
@@ -351,22 +337,17 @@ const Termine = () => {
                   <SelectItem value="cancelled">Abgesagt</SelectItem>
                 </SelectContent>
               </Select>
-              {canEdit && (
-                <Button onClick={() => { setEditingAppt(emptyAppt(currentTenant.id)); setDialogOpen(true); }} size="sm">
-                  <Plus className="mr-2 h-4 w-4" /> Termin erstellen
-                </Button>
-              )}
               {extCals.length > 0 && (
                 <div className="flex gap-2 ml-auto flex-wrap">
                   {visibleExtCals.filter((c) => c.active).map((c) => (
-                    <span key={c.id} className="text-xs flex items-center gap-1.5 bg-muted px-2 py-1 rounded">
+                    <span key={c.id} className="text-[10px] font-bold uppercase flex items-center gap-1.5 bg-muted/50 border px-2 py-1 rounded">
                       <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />{c.name}
                     </span>
                   ))}
                 </div>
               )}
             </div>
-            <Card className="p-2 md:p-4 bg-card border-border">
+            <AdminCard className="p-2 md:p-4">
               <FullCal
                 appointments={isGuest ? appts.filter((a) => a.public_visible) : appts}
                 externalCalendars={visibleExtCals}
@@ -385,16 +366,15 @@ const Termine = () => {
                   setDialogOpen(true);
                 }}
               />
-            </Card>
+            </AdminCard>
           </TabsContent>
 
-          {/* ============= LISTE ============= */}
           {canEdit && (
-            <TabsContent value="list" className="space-y-4 mt-4">
-              <div className="flex items-center gap-3">
-                <Label>Filter:</Label>
+            <TabsContent value="list" className="space-y-4 mt-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Label className="text-xs font-bold uppercase">Filter:</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-48 bg-card"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-48 bg-card h-9 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Alle</SelectItem>
                     <SelectItem value="pending">Offen</SelectItem>
@@ -404,10 +384,10 @@ const Termine = () => {
                 </Select>
               </div>
 
-              <Card className="hidden md:block overflow-x-auto bg-card border-border">
+              <AdminCard className="overflow-x-auto">
                 <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow className="hover:bg-transparent">
+                  <TableHeader>
+                    <TableRow>
                       <TableHead className="w-[130px]">Datum/Zeit</TableHead>
                       <TableHead className="w-[160px]">Titel/Quelle</TableHead>
                       <TableHead className="w-[180px]">Person</TableHead>
@@ -421,17 +401,17 @@ const Termine = () => {
                     {filteredAppts.map((a) => {
                       const isManual = a.source === "manual";
                       return (
-                        <TableRow key={a.id} className="hover:bg-muted/30 align-top">
+                        <TableRow key={a.id} className="align-top">
                           <TableCell className="space-y-1">
-                            <Input type="date" className="h-7 text-[11px] bg-background" value={a.appointment_date} onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })} />
+                            <Input type="date" className="h-7 text-[11px]" value={a.appointment_date} onChange={(e) => updateApptDetails(a.id, { appointment_date: e.target.value })} />
                             <div className="flex gap-1">
-                              <Input type="time" className="h-7 text-[11px] bg-background font-bold" value={a.appointment_time.slice(0,5)} onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value + ":00" })} />
-                              <Input type="time" className="h-7 text-[11px] bg-background" value={a.end_time?.slice(0,5) || ""} placeholder="Ende" onChange={(e) => updateApptDetails(a.id, { end_time: e.target.value ? e.target.value + ":00" : null })} />
+                              <Input type="time" className="h-7 text-[11px] font-bold" value={a.appointment_time.slice(0,5)} onChange={(e) => updateApptDetails(a.id, { appointment_time: e.target.value + ":00" })} />
+                              <Input type="time" className="h-7 text-[11px]" value={a.end_time?.slice(0,5) || ""} placeholder="Ende" onChange={(e) => updateApptDetails(a.id, { end_time: e.target.value ? e.target.value + ":00" : null })} />
                             </div>
                           </TableCell>
                           <TableCell className="space-y-1">
                             <Input 
-                              className="h-7 text-xs bg-background" 
+                              className="h-7 text-xs" 
                               placeholder="Titel" 
                               value={!isManual ? "Anfrage" : (a.title || "")} 
                               onChange={(e) => updateApptDetails(a.id, { title: e.target.value })} 
@@ -445,27 +425,27 @@ const Termine = () => {
                             {!isManual && (
                               <>
                                 <Select value={a.salutation || "_none"} onValueChange={(v) => updateApptDetails(a.id, { salutation: v === "_none" ? "" : v })}>
-                                  <SelectTrigger className="h-7 text-[11px] bg-background"><SelectValue /></SelectTrigger>
+                                  <SelectTrigger className="h-7 text-[11px]"><SelectValue /></SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="_none">—</SelectItem>
                                     <SelectItem value="Herr">Herr</SelectItem>
                                     <SelectItem value="Frau">Frau</SelectItem>
                                   </SelectContent>
                                 </Select>
-                                <Input className="h-7 text-xs bg-background" placeholder="Vorname" value={a.first_name} onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })} />
-                                <Input className="h-7 text-xs bg-background font-medium" placeholder="Nachname" value={a.last_name} onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })} />
+                                <Input className="h-7 text-xs" placeholder="Vorname" value={a.first_name} onChange={(e) => updateApptDetails(a.id, { first_name: e.target.value })} />
+                                <Input className="h-7 text-xs font-medium" placeholder="Nachname" value={a.last_name} onChange={(e) => updateApptDetails(a.id, { last_name: e.target.value })} />
                               </>
                             )}
                           </TableCell>
                           <TableCell className="space-y-1">
                             {!isManual && (
                               <>
-                                <Input className="h-7 text-xs bg-background" placeholder="Telefon" value={a.phone || ""} onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })} />
-                                <Input className="h-7 text-xs bg-background" placeholder="E-Mail" value={a.email || ""} onChange={(e) => updateApptDetails(a.id, { email: e.target.value })} />
+                                <Input className="h-7 text-xs" placeholder="Telefon" value={a.phone || ""} onChange={(e) => updateApptDetails(a.id, { phone: e.target.value })} />
+                                <Input className="h-7 text-xs" placeholder="E-Mail" value={a.email || ""} onChange={(e) => updateApptDetails(a.id, { email: e.target.value })} />
                               </>
                             )}
                             <Select value={a.assigned_user_id || "_none"} onValueChange={(v) => updateApptDetails(a.id, { assigned_user_id: v === "_none" ? null : v })}>
-                              <SelectTrigger className="h-7 text-[11px] bg-background"><SelectValue placeholder="User..." /></SelectTrigger>
+                              <SelectTrigger className="h-7 text-[11px]"><SelectValue placeholder="User..." /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="_none">— kein User —</SelectItem>
                                 {profiles.map((p) => <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || p.email}</SelectItem>)}
@@ -473,11 +453,11 @@ const Termine = () => {
                             </Select>
                           </TableCell>
                           <TableCell>
-                            <Textarea className="h-16 text-xs bg-background" value={a.note || ""} onChange={(e) => updateApptDetails(a.id, { note: e.target.value })} />
+                            <Textarea className="h-16 text-xs resize-none" value={a.note || ""} onChange={(e) => updateApptDetails(a.id, { note: e.target.value })} />
                           </TableCell>
                           <TableCell>
                             <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
-                              <SelectTrigger className={`h-8 text-xs font-bold ${a.status === 'confirmed' ? 'text-green-600' : a.status === 'cancelled' ? 'text-destructive' : 'text-orange-500'}`}>
+                              <SelectTrigger className={`h-8 text-xs font-bold ${a.status === 'confirmed' ? 'text-green-600 border-green-200 bg-green-50/50' : a.status === 'cancelled' ? 'text-destructive border-red-200 bg-red-50/50' : 'text-orange-500 border-orange-200 bg-orange-50/50'}`}>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -488,7 +468,7 @@ const Termine = () => {
                             </Select>
                           </TableCell>
                           <TableCell>
-                            <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteAppt(a.id)}>
+                            <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 hover:bg-destructive/10" onClick={() => deleteAppt(a.id)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
@@ -497,157 +477,124 @@ const Termine = () => {
                     })}
                   </TableBody>
                 </Table>
-              </Card>
-
-              {/* Mobile */}
-              <div className="md:hidden space-y-3">
-                {filteredAppts.map((a) => (
-                  <Card key={a.id} className="p-4 bg-card border-border space-y-2">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2 font-bold text-sm">
-                        <CalendarDays className="h-4 w-4 text-primary" />
-                        {new Date(a.appointment_date).toLocaleDateString("de-DE")} - {a.appointment_time.slice(0,5)}
-                      </div>
-                      <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 -mt-1 -mr-1" onClick={() => deleteAppt(a.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Button size="sm" variant="outline" className="w-full" onClick={() => { setEditingAppt({ ...a, appointment_time: a.appointment_time.slice(0,5), end_time: a.end_time?.slice(0,5) || null }); setDialogOpen(true); }}>
-                      Bearbeiten
-                    </Button>
-                    <div className="text-xs">{a.first_name} {a.last_name} · {a.email}</div>
-                    <Select value={a.status} onValueChange={(v) => updateApptStatus(a.id, v as Appt["status"])}>
-                      <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">Offen</SelectItem>
-                        <SelectItem value="confirmed">Bestätigt</SelectItem>
-                        <SelectItem value="cancelled">Abgesagt</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Card>
-                ))}
-              </div>
-              {filteredAppts.length === 0 && <p className="text-center py-10 text-muted-foreground">Keine Termine.</p>}
+                {filteredAppts.length === 0 && <p className="text-center py-12 text-sm text-muted-foreground">Keine Termine vorhanden.</p>}
+              </AdminCard>
             </TabsContent>
           )}
 
-          {/* ============= VERFÜGBARKEIT ============= */}
           {canEdit && (
-            <TabsContent value="availability" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold">Verfügbare Zeitfenster (Frontend-Buchung)</h3>
+            <TabsContent value="availability" className="space-y-4 mt-6">
+              <AdminSection spacing="md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-primary" />
+                    <h3 className="font-bold">Verfügbare Zeitfenster</h3>
+                  </div>
+                  <Button onClick={addSlot} size="sm"><Plus className="mr-2 h-4 w-4" />Neues Fenster</Button>
                 </div>
-                <Button onClick={addSlot} size="sm"><Plus className="mr-2 h-4 w-4" />Neues Fenster</Button>
-              </div>
-              <div className="grid gap-3">
-                {slots.map((s) => (
-                  <Card key={s.id} className={`p-4 border-l-4 ${s.active ? 'border-l-primary bg-card' : 'border-l-muted bg-muted/20 opacity-70'} border-border`}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4 items-end">
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Wochentag</Label>
-                        <Select value={String(s.weekday)} onValueChange={(v) => updateSlot(s.id, { weekday: Number(v) })}>
-                          <SelectTrigger className="bg-background h-9"><SelectValue /></SelectTrigger>
-                          <SelectContent>{WEEKDAYS.map((d, i) => <SelectItem key={i} value={String(i)}>{d}</SelectItem>)}</SelectContent>
-                        </Select>
+                <div className="grid gap-4">
+                  {slots.map((s) => (
+                    <AdminCard key={s.id} className={`border-l-4 ${s.active ? 'border-l-primary' : 'border-l-muted opacity-70'}`}>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4 items-end">
+                        <AdminFieldGroup label="Wochentag">
+                          <Select value={String(s.weekday)} onValueChange={(v) => updateSlot(s.id, { weekday: Number(v) })}>
+                            <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>{WEEKDAYS.map((d, i) => <SelectItem key={i} value={String(i)}>{d}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </AdminFieldGroup>
+                        <AdminFieldGroup label="Von">
+                          <Input className="h-9 text-xs" type="time" value={s.start_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { start_time: e.target.value })} />
+                        </AdminFieldGroup>
+                        <AdminFieldGroup label="Bis">
+                          <Input className="h-9 text-xs" type="time" value={s.end_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { end_time: e.target.value })} />
+                        </AdminFieldGroup>
+                        <AdminFieldGroup label="Slot (Min)">
+                          <Input className="h-9 text-xs" type="number" min={5} step={5} value={s.slot_minutes} onChange={(e) => updateSlot(s.id, { slot_minutes: Number(e.target.value) })} />
+                        </AdminFieldGroup>
+                        <div className="flex items-center gap-2 pb-2 h-9">
+                          <Switch checked={s.active} onCheckedChange={(v) => updateSlot(s.id, { active: v })} />
+                          <Label className="text-xs font-bold uppercase">Aktiv</Label>
+                        </div>
+                        <div className="flex justify-end pb-1">
+                          <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={() => deleteSlot(s.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Von</Label>
-                        <Input className="bg-background h-9" type="time" value={s.start_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { start_time: e.target.value })} />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Bis</Label>
-                        <Input className="bg-background h-9" type="time" value={s.end_time.slice(0,5)} onChange={(e) => updateSlot(s.id, { end_time: e.target.value })} />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Slot (Min)</Label>
-                        <Input className="bg-background h-9" type="number" min={5} step={5} value={s.slot_minutes} onChange={(e) => updateSlot(s.id, { slot_minutes: Number(e.target.value) })} />
-                      </div>
-                      <div className="flex items-center gap-2 pb-2 h-9">
-                        <Switch checked={s.active} onCheckedChange={(v) => updateSlot(s.id, { active: v })} />
-                        <Label className="text-xs">Aktiv</Label>
-                      </div>
-                      <Button size="icon" variant="ghost" className="text-destructive ml-auto" onClick={() => deleteSlot(s.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </Card>
-                ))}
-              </div>
+                    </AdminCard>
+                  ))}
+                  {slots.length === 0 && <p className="text-center py-12 text-sm text-muted-foreground bg-muted/10 rounded-lg border-2 border-dashed">Keine Zeitfenster konfiguriert.</p>}
+                </div>
+              </AdminSection>
             </TabsContent>
           )}
 
-          {/* ============= EXTERNE KALENDER ============= */}
           {canEdit && (
-            <TabsContent value="external" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <LinkIcon className="h-5 w-5 text-primary" />
-                  <h3 className="font-bold">Externe Kalender (ICS-URL)</h3>
+            <TabsContent value="external" className="space-y-4 mt-6">
+              <AdminSection spacing="md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <LinkIcon className="h-5 w-5 text-primary" />
+                    <h3 className="font-bold">Externe Kalender (ICS)</h3>
+                  </div>
+                  <Button onClick={() => { setEditingCal({ name: "", url: "", color: "#7c3aed", active: true, public_visible: false, tenant_id: currentTenant.id }); setCalDialogOpen(true); }} size="sm">
+                    <Plus className="mr-2 h-4 w-4" /> Hinzufügen
+                  </Button>
                 </div>
-                <Button onClick={() => { setEditingCal({ name: "", url: "", color: "#7c3aed", active: true, public_visible: false, tenant_id: currentTenant.id }); setCalDialogOpen(true); }} size="sm">
-                  <Plus className="mr-2 h-4 w-4" /> Hinzufügen
-                </Button>
-              </div>
-              <div className="grid gap-2">
-                {extCals.map((c) => (
-                  <Card key={c.id} className="p-3 flex items-center gap-3 bg-card border-border">
-                    <span className="w-3 h-3 rounded-full" style={{ background: c.color }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-sm">{c.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{c.url}</div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      {c.active ? <Badge>Aktiv</Badge> : <Badge variant="secondary">Inaktiv</Badge>}
-                      {c.public_visible && <Badge variant="outline">Öffentlich</Badge>}
-                    </div>
-                    <Button size="sm" variant="outline" onClick={() => { setEditingCal(c); setCalDialogOpen(true); }}>Bearbeiten</Button>
-                    <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => deleteExtCal(c.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </Card>
-                ))}
-                {extCals.length === 0 && <p className="text-center py-8 text-sm text-muted-foreground">Noch keine externen Kalender. Z.B. .ics-Link von Google/Apple/Outlook einfügen.</p>}
-              </div>
+                <div className="grid gap-3">
+                  {extCals.map((c) => (
+                    <AdminCard key={c.id} className="p-3">
+                      <div className="flex items-center gap-4">
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-sm">{c.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{c.url}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {c.active ? <Badge className="text-[9px] uppercase">Aktiv</Badge> : <Badge variant="secondary" className="text-[9px] uppercase">Inaktiv</Badge>}
+                          {c.public_visible && <Badge variant="outline" className="text-[9px] uppercase">Öffentlich</Badge>}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { setEditingCal(c); setCalDialogOpen(true); }}>Bearbeiten</Button>
+                          <Button size="icon" variant="ghost" className="text-destructive h-8 w-8 hover:bg-destructive/10" onClick={() => deleteExtCal(c.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </AdminCard>
+                  ))}
+                  {extCals.length === 0 && <p className="text-center py-12 text-sm text-muted-foreground bg-muted/10 rounded-lg border-2 border-dashed">Noch keine externen Kalender hinzugefügt.</p>}
+                </div>
+              </AdminSection>
             </TabsContent>
           )}
 
-          {/* ============= E-MAIL-VORLAGEN ============= */}
           {isAdmin && (
-            <TabsContent value="emails" className="space-y-4 mt-4">
-              <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-primary" />
-                <h3 className="font-bold">E-Mail-Vorlagen für Terminanfragen</h3>
-              </div>
-              <div className="grid md:grid-cols-2 gap-4">
-                <EmailTemplateEditor
-                  triggerKey="appointment_confirmed"
-                  title="✓ Bestätigung"
-                  description="Wird gesendet, wenn ein Termin bestätigt wird."
-                  variableHints={["full_name", "salutation", "first_name", "last_name", "date", "time", "title", "note"]}
-                  defaultSubject="Ihr Termin wurde bestätigt"
-                  defaultBody={`Sehr geehrte/r {{full_name}},
-
-wir freuen uns, Ihnen Ihren Termin am {{date}} um {{time}} Uhr zu bestätigen.
-
-Mit freundlichen Grüßen
-KH Webs`}
-                />
-                <EmailTemplateEditor
-                  triggerKey="appointment_cancelled"
-                  title="✗ Absage"
-                  description="Wird gesendet, wenn eine Anfrage abgelehnt wird."
-                  variableHints={["full_name", "salutation", "first_name", "last_name", "date", "time", "title", "note"]}
-                  defaultSubject="Ihre Terminanfrage wurde abgelehnt"
-                  defaultBody={`Sehr geehrte/r {{full_name}},
-
-leider können wir Ihren Wunschtermin am {{date}} um {{time}} Uhr nicht bestätigen.
-
-Mit freundlichen Grüßen
-KH Webs`}
-                />
-              </div>
+            <TabsContent value="emails" className="space-y-4 mt-6">
+              <AdminSection spacing="md">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-primary" />
+                  <h3 className="font-bold">E-Mail-Vorlagen</h3>
+                </div>
+                <div className="grid md:grid-cols-2 gap-6">
+                  <EmailTemplateEditor
+                    triggerKey="appointment_confirmed"
+                    title="✓ Bestätigung"
+                    description="Wird gesendet, wenn ein Termin bestätigt wird."
+                    variableHints={["full_name", "salutation", "first_name", "last_name", "date", "time", "title", "note"]}
+                    defaultSubject="Ihr Termin wurde bestätigt"
+                    defaultBody={`Sehr geehrte/r {{full_name}},\n\nwir freuen uns, Ihnen Ihren Termin am {{date}} um {{time}} Uhr zu bestätigen.\n\nMit freundlichen Grüßen\nKH Webs`}
+                  />
+                  <EmailTemplateEditor
+                    triggerKey="appointment_cancelled"
+                    title="✗ Absage"
+                    description="Wird gesendet, wenn eine Anfrage abgelehnt wird."
+                    variableHints={["full_name", "salutation", "first_name", "last_name", "date", "time", "title", "note"]}
+                    defaultSubject="Ihre Terminanfrage wurde abgelehnt"
+                    defaultBody={`Sehr geehrte/r {{full_name}},\n\nleider können wir Ihren Wunschtermin am {{date}} um {{time}} Uhr nicht bestätigen.\n\nMit freundlichen Grüßen\nKH Webs`}
+                  />
+                </div>
+              </AdminSection>
             </TabsContent>
           )}
         </Tabs>
@@ -656,24 +603,37 @@ KH Webs`}
         <Dialog open={dialogOpen} onOpenChange={(v) => { setDialogOpen(v); if (!v) setEditingAppt(null); }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingAppt?.id ? "Termin bearbeiten" : "Neuer Termin"}</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-primary" />
+                {editingAppt?.id ? "Termin bearbeiten" : "Neuer Termin"}
+              </DialogTitle>
             </DialogHeader>
             {editingAppt && (
-              <div className="grid gap-3 py-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <Label>Titel</Label>
+              <AdminSection spacing="sm" className="py-4">
+                <AdminFormRow columns={1}>
+                  <AdminFieldGroup label="Titel">
                     <Input value={editingAppt.source !== 'manual' ? "Anfrage" : (editingAppt.title || "")} onChange={(e) => setEditingAppt({ ...editingAppt, title: e.target.value })} />
-                  </div>
-                  <div><Label>Datum</Label><Input type="date" value={editingAppt.appointment_date || ""} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_date: e.target.value })} /></div>
+                  </AdminFieldGroup>
+                </AdminFormRow>
+                
+                <AdminFormRow columns={2}>
+                  <AdminFieldGroup label="Datum">
+                    <Input type="date" value={editingAppt.appointment_date || ""} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_date: e.target.value })} />
+                  </AdminFieldGroup>
                   <div className="grid grid-cols-2 gap-2">
-                    <div><Label>Von</Label><Input type="time" value={(editingAppt.appointment_time || "").slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_time: e.target.value })} /></div>
-                    <div><Label>Bis</Label><Input type="time" value={(editingAppt.end_time || "").toString().slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, end_time: e.target.value })} /></div>
+                    <AdminFieldGroup label="Von">
+                      <Input type="time" value={(editingAppt.appointment_time || "").slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, appointment_time: e.target.value })} />
+                    </AdminFieldGroup>
+                    <AdminFieldGroup label="Bis">
+                      <Input type="time" value={(editingAppt.end_time || "").toString().slice(0,5)} onChange={(e) => setEditingAppt({ ...editingAppt, end_time: e.target.value })} />
+                    </AdminFieldGroup>
                   </div>
-                  
-                  {editingAppt.source !== 'manual' && (
-                    <>
-                      <div><Label>Anrede</Label>
+                </AdminFormRow>
+                
+                {editingAppt.source !== 'manual' && (
+                  <>
+                    <AdminFormRow columns={2}>
+                      <AdminFieldGroup label="Anrede">
                         <Select value={editingAppt.salutation || "_none"} onValueChange={(v) => setEditingAppt({ ...editingAppt, salutation: v === "_none" ? "" : v })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -682,16 +642,30 @@ KH Webs`}
                             <SelectItem value="Frau">Frau</SelectItem>
                           </SelectContent>
                         </Select>
-                      </div>
-                      <div /> {/* Spacer */}
-                      <div><Label>Vorname</Label><Input value={editingAppt.first_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, first_name: e.target.value })} /></div>
-                      <div><Label>Nachname</Label><Input value={editingAppt.last_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, last_name: e.target.value })} /></div>
-                      <div><Label>Telefon</Label><Input value={editingAppt.phone || ""} onChange={(e) => setEditingAppt({ ...editingAppt, phone: e.target.value })} /></div>
-                      <div><Label>E-Mail</Label><Input value={editingAppt.email || ""} onChange={(e) => setEditingAppt({ ...editingAppt, email: e.target.value })} /></div>
-                    </>
-                  )}
+                      </AdminFieldGroup>
+                      <div />
+                    </AdminFormRow>
+                    <AdminFormRow columns={2}>
+                      <AdminFieldGroup label="Vorname">
+                        <Input value={editingAppt.first_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, first_name: e.target.value })} />
+                      </AdminFieldGroup>
+                      <AdminFieldGroup label="Nachname">
+                        <Input value={editingAppt.last_name || ""} onChange={(e) => setEditingAppt({ ...editingAppt, last_name: e.target.value })} />
+                      </AdminFieldGroup>
+                    </AdminFormRow>
+                    <AdminFormRow columns={2}>
+                      <AdminFieldGroup label="Telefon">
+                        <Input value={editingAppt.phone || ""} onChange={(e) => setEditingAppt({ ...editingAppt, phone: e.target.value })} />
+                      </AdminFieldGroup>
+                      <AdminFieldGroup label="E-Mail">
+                        <Input value={editingAppt.email || ""} onChange={(e) => setEditingAppt({ ...editingAppt, email: e.target.value })} />
+                      </AdminFieldGroup>
+                    </AdminFormRow>
+                  </>
+                )}
 
-                  <div><Label>Status</Label>
+                <AdminFormRow columns={2}>
+                  <AdminFieldGroup label="Status">
                     <Select value={editingAppt.status || "pending"} onValueChange={(v) => setEditingAppt({ ...editingAppt, status: v as any })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -700,9 +674,14 @@ KH Webs`}
                         <SelectItem value="cancelled">Abgesagt</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div><Label>Farbe</Label><Input type="color" value={editingAppt.color || "#0ea5b7"} onChange={(e) => setEditingAppt({ ...editingAppt, color: e.target.value })} /></div>
-                  <div><Label>Zugewiesener User</Label>
+                  </AdminFieldGroup>
+                  <AdminFieldGroup label="Farbe">
+                    <Input type="color" className="h-10 p-1" value={editingAppt.color || "#0ea5b7"} onChange={(e) => setEditingAppt({ ...editingAppt, color: e.target.value })} />
+                  </AdminFieldGroup>
+                </AdminFormRow>
+
+                <AdminFormRow columns={1}>
+                  <AdminFieldGroup label="Zugewiesener User">
                     <Select value={editingAppt.assigned_user_id || "_none"} onValueChange={(v) => setEditingAppt({ ...editingAppt, assigned_user_id: v === "_none" ? null : v })}>
                       <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
@@ -710,17 +689,21 @@ KH Webs`}
                         {profiles.map((p) => <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || p.email}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="col-span-2"><Label>Notiz</Label><Textarea value={editingAppt.note || ""} onChange={(e) => setEditingAppt({ ...editingAppt, note: e.target.value })} /></div>
-                  <div className="col-span-2 flex items-center gap-2 pt-2">
-                    <Switch checked={editingAppt.public_visible || false} onCheckedChange={(v) => setEditingAppt({ ...editingAppt, public_visible: v })} />
-                    <Label>Veröffentlichen (für andere User sichtbar)</Label>
-                  </div>
+                  </AdminFieldGroup>
+                </AdminFormRow>
+
+                <AdminFieldGroup label="Notiz">
+                  <Textarea rows={3} value={editingAppt.note || ""} onChange={(e) => setEditingAppt({ ...editingAppt, note: e.target.value })} />
+                </AdminFieldGroup>
+
+                <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border">
+                  <Switch checked={editingAppt.public_visible || false} onCheckedChange={(v) => setEditingAppt({ ...editingAppt, public_visible: v })} />
+                  <Label className="text-xs font-bold uppercase">Öffentlich sichtbar</Label>
                 </div>
-              </div>
+              </AdminSection>
             )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>Abbrechen</Button>
+            <DialogFooter className="border-t pt-4">
+              <Button variant="ghost" onClick={() => setDialogOpen(false)}>Abbrechen</Button>
               <Button onClick={saveAppt}>Speichern</Button>
             </DialogFooter>
           </DialogContent>
@@ -730,15 +713,24 @@ KH Webs`}
         <Dialog open={calDialogOpen} onOpenChange={(v) => { setCalDialogOpen(v); if (!v) setEditingCal(null); }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>{editingCal?.id ? "Kalender bearbeiten" : "Externer Kalender (ICS)"}</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <LinkIcon className="h-5 w-5 text-primary" />
+                {editingCal?.id ? "Kalender bearbeiten" : "Externer Kalender (ICS)"}
+              </DialogTitle>
             </DialogHeader>
             {editingCal && (
-              <div className="grid gap-3 py-2">
-                <div><Label>Name</Label><Input value={editingCal.name || ""} onChange={(e) => setEditingCal({ ...editingCal, name: e.target.value })} /></div>
-                <div><Label>ICS-URL (https:// oder webcal://)</Label><Input value={editingCal.url || ""} onChange={(e) => setEditingCal({ ...editingCal, url: e.target.value })} placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" /></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Farbe</Label><Input type="color" value={editingCal.color || "#7c3aed"} onChange={(e) => setEditingCal({ ...editingCal, color: e.target.value })} /></div>
-                  <div><Label>Zugewiesener User</Label>
+              <AdminSection spacing="sm" className="py-4">
+                <AdminFieldGroup label="Name">
+                  <Input value={editingCal.name || ""} onChange={(e) => setEditingCal({ ...editingCal, name: e.target.value })} />
+                </AdminFieldGroup>
+                <AdminFieldGroup label="ICS-URL" description="webcal:// oder https:// Link">
+                  <Input value={editingCal.url || ""} onChange={(e) => setEditingCal({ ...editingCal, url: e.target.value })} placeholder="https://calendar.google.com/..." />
+                </AdminFieldGroup>
+                <AdminFormRow columns={2}>
+                  <AdminFieldGroup label="Farbe">
+                    <Input type="color" className="h-10 p-1" value={editingCal.color || "#7c3aed"} onChange={(e) => setEditingCal({ ...editingCal, color: e.target.value })} />
+                  </AdminFieldGroup>
+                  <AdminFieldGroup label="Zugewiesener User">
                     <Select value={editingCal.assigned_user_id || "_none"} onValueChange={(v) => setEditingCal({ ...editingCal, assigned_user_id: v === "_none" ? null : v })}>
                       <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
@@ -746,19 +738,27 @@ KH Webs`}
                         {profiles.map((p) => <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || p.email}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </AdminFieldGroup>
+                </AdminFormRow>
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border">
+                    <Switch checked={editingCal.active ?? true} onCheckedChange={(v) => setEditingCal({ ...editingCal, active: v })} />
+                    <Label className="text-xs font-bold uppercase">Aktiv</Label>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border">
+                    <Switch checked={editingCal.public_visible || false} onCheckedChange={(v) => setEditingCal({ ...editingCal, public_visible: v })} />
+                    <Label className="text-xs font-bold uppercase">Öffentlich sichtbar</Label>
                   </div>
                 </div>
-                <div className="flex items-center gap-2"><Switch checked={editingCal.active ?? true} onCheckedChange={(v) => setEditingCal({ ...editingCal, active: v })} /><Label>Aktiv</Label></div>
-                <div className="flex items-center gap-2"><Switch checked={editingCal.public_visible || false} onCheckedChange={(v) => setEditingCal({ ...editingCal, public_visible: v })} /><Label>Veröffentlichen (für andere User sichtbar)</Label></div>
-              </div>
+              </AdminSection>
             )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCalDialogOpen(false)}>Abbrechen</Button>
+            <DialogFooter className="border-t pt-4">
+              <Button variant="ghost" onClick={() => setCalDialogOpen(false)}>Abbrechen</Button>
               <Button onClick={saveExtCal}>Speichern</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
+      </AdminContentWrapper>
     </AdminLayout>
   );
 };
