@@ -4,18 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning, Calendar, Clock } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown, Mail, MessageSquareWarning, Calendar, Clock, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { EmailTemplateEditor } from "@/components/admin/EmailTemplateEditor";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useTenant } from "@/contexts/TenantContext";
+import { AdminPageHeader, AdminCard, AdminSection, AdminContentWrapper, AdminFormRow, AdminFieldGroup } from "@/components/admin";
 
 type FieldType = "text" | "number" | "email" | "textarea" | "radio" | "checkbox" | "select" | "html";
 type Field = {
@@ -250,48 +250,28 @@ const Formulare = () => {
     submissionFilterForm === "all" ? subs : subs.filter(s => s.form_id === submissionFilterForm),
     [subs, submissionFilterForm]);
 
-  // Kein Mandant ausgewählt
   if (!currentTenant) {
     return (
       <AdminLayout>
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">Formulare</h1>
-          <Card className="p-12 text-center text-muted-foreground">
+        <AdminContentWrapper>
+          <AdminPageHeader icon={FileText} title="Formulare" />
+          <AdminCard className="p-12 text-center text-muted-foreground">
             <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
-          </Card>
-        </div>
-      </AdminLayout>
-    );
-  }
-
-  // Ladezustand
-  if (loading) {
-    return (
-      <AdminLayout>
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">Formulare</h1>
-          <Card className="p-12 text-center text-muted-foreground">
-            <p>Lade Formulare...</p>
-          </Card>
-        </div>
+          </AdminCard>
+        </AdminContentWrapper>
       </AdminLayout>
     );
   }
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl font-bold">Formulare</h1>
-            <p className="text-sm text-muted-foreground">
-              Mandant: <span className="font-medium">{currentTenant.name}</span>
-            </p>
-          </div>
-          {isTenantAdmin && (
-            <Button onClick={addForm}><Plus className="h-4 w-4 mr-2" />Neues Formular</Button>
-          )}
-        </div>
+      <AdminContentWrapper>
+        <AdminPageHeader 
+          icon={FileText} 
+          title="Formulare" 
+          description={`Verwalte Formulare und Eingaben für ${currentTenant.name}`}
+          actions={isTenantAdmin && <Button onClick={addForm}><Plus className="h-4 w-4 mr-2" />Neues Formular</Button>}
+        />
 
         <Tabs defaultValue="builder" className="w-full">
           <TabsList className="bg-muted/50 border flex-wrap h-auto">
@@ -302,7 +282,7 @@ const Formulare = () => {
 
           <TabsContent value="builder" className="space-y-4 mt-6">
             <div className="grid md:grid-cols-[280px_1fr] gap-6">
-              <Card className="p-3 space-y-1 h-fit bg-card border-border shadow-sm">
+              <AdminCard className="p-3 space-y-1 h-fit">
                 {forms.map((f) => (
                   <button key={f.id} onClick={() => setActiveId(f.id)}
                     className={`w-full text-left px-4 py-2.5 rounded-lg text-sm transition-all ${activeId === f.id ? "bg-primary text-primary-foreground shadow-md" : "hover:bg-muted"}`}>
@@ -310,46 +290,54 @@ const Formulare = () => {
                     <div className="text-[10px] opacity-70 mt-0.5">{f.published ? "Öffentlich" : "Entwurf"}</div>
                   </button>
                 ))}
-              </Card>
+                {forms.length === 0 && <p className="text-xs text-muted-foreground p-4 text-center">Keine Formulare</p>}
+              </AdminCard>
 
               {activeForm ? (
-                <div className="space-y-6">
-                  <Card className="p-6 space-y-4 border-border shadow-sm">
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5"><Label className="text-xs font-bold uppercase text-muted-foreground">Titel</Label><Input value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} /></div>
-                      <div className="space-y-1.5"><Label className="text-xs font-bold uppercase text-muted-foreground">Button Text</Label><Input value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} /></div>
-                    </div>
-                    <div className="space-y-1.5"><Label className="text-xs font-bold uppercase text-muted-foreground">Beschreibung</Label><Textarea rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} /></div>
-                    <div className="flex items-center justify-between pt-4 border-t">
-                      <div className="flex items-center gap-3 text-sm font-medium"><Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />Öffentlich</div>
+                <AdminSection spacing="md">
+                  <AdminCard title="Formular-Einstellungen">
+                    <AdminFormRow columns={2}>
+                      <AdminFieldGroup label="Titel">
+                        <Input value={activeForm.title} onChange={(e) => updateForm(activeForm.id, { title: e.target.value })} />
+                      </AdminFieldGroup>
+                      <AdminFieldGroup label="Button Text">
+                        <Input value={activeForm.submit_label} onChange={(e) => updateForm(activeForm.id, { submit_label: e.target.value })} />
+                      </AdminFieldGroup>
+                    </AdminFormRow>
+                    <AdminFieldGroup label="Beschreibung" className="mt-4">
+                      <Textarea rows={2} value={activeForm.description} onChange={(e) => updateForm(activeForm.id, { description: e.target.value })} />
+                    </AdminFieldGroup>
+                    <div className="flex items-center justify-between pt-4 mt-4 border-t">
+                      <div className="flex items-center gap-3 text-sm font-medium">
+                        <Switch checked={activeForm.published} onCheckedChange={(v) => updateForm(activeForm.id, { published: v })} />
+                        Öffentlich
+                      </div>
                       {isTenantAdmin && (
                         <Button variant="destructive" size="sm" onClick={() => deleteForm(activeForm.id)}><Trash2 className="h-4 w-4 mr-2" />Löschen</Button>
                       )}
                     </div>
-                  </Card>
+                  </AdminCard>
 
-                  <Card className="p-6 space-y-6 border-border shadow-sm">
-                    <div className="flex items-center justify-between border-b pb-4">
-                      <h3 className="font-bold">Felder</h3>
-                      {isTenantAdmin && (
-                        <div className="flex flex-wrap gap-1">
-                          {FIELD_TYPES.map((t) => (
-                            <Button key={t} size="sm" variant="secondary" onClick={() => addField(t)} className="h-7 text-[10px] font-bold uppercase">+ {t}</Button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
+                  <AdminCard 
+                    title="Felder" 
+                    actions={isTenantAdmin && (
+                      <div className="flex flex-wrap gap-1">
+                        {FIELD_TYPES.map((t) => (
+                          <Button key={t} size="sm" variant="secondary" onClick={() => addField(t)} className="h-7 text-[10px] font-bold uppercase">+ {t}</Button>
+                        ))}
+                      </div>
+                    )}
+                  >
                     <div className="space-y-4">
                       {fields.map((f, index) => (
-                        <Card key={f.id} className="p-4 space-y-4 bg-muted/20 border-border group">
+                        <div key={f.id} className="p-4 space-y-4 bg-muted/20 border rounded-lg group">
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center gap-2 flex-wrap">
                               <div className="flex flex-col gap-0.5 mr-2">
                                 <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === 0} onClick={() => moveField(index, 'up')}><ChevronUp className="h-4 w-4" /></Button>
                                 <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === fields.length - 1} onClick={() => moveField(index, 'down')}><ChevronDown className="h-4 w-4" /></Button>
                               </div>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 uppercase tracking-widest">{f.field_type}</span>
+                              <Badge variant="secondary" className="uppercase tracking-widest text-[10px]">{f.field_type}</Badge>
                               <span className="text-[10px] font-mono text-muted-foreground">name=<strong className="text-foreground">{f.field_name}</strong></span>
                               <label className="flex items-center gap-1 text-[10px] ml-2"><input type="checkbox" checked={f.required} onChange={(e) => updateField(f.id, { required: e.target.checked })} /> Pflicht</label>
                             </div>
@@ -361,10 +349,14 @@ const Formulare = () => {
                           {f.field_type === "html" ? (
                             <Textarea className="font-mono text-xs bg-zinc-950 text-green-500 rounded-lg p-4" rows={8} value={f.html_content} onChange={(e) => updateField(f.id, { html_content: e.target.value })} />
                           ) : (
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Label</Label><Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} /></div>
-                              <div className="space-y-1.5"><Label className="text-[10px] font-bold uppercase">Platzhalter</Label><Input className="h-9" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} /></div>
-                            </div>
+                            <AdminFormRow columns={2}>
+                              <AdminFieldGroup label="Label">
+                                <Input className="h-9" value={f.label} onChange={(e) => updateField(f.id, { label: e.target.value })} />
+                              </AdminFieldGroup>
+                              <AdminFieldGroup label="Platzhalter">
+                                <Input className="h-9" value={f.placeholder} onChange={(e) => updateField(f.id, { placeholder: e.target.value })} />
+                              </AdminFieldGroup>
+                            </AdminFormRow>
                           )}
 
                           {(f.field_type === "radio" || f.field_type === "checkbox" || f.field_type === "select") && (
@@ -381,15 +373,16 @@ const Formulare = () => {
                               </div>
                             </div>
                           )}
-                        </Card>
+                        </div>
                       ))}
+                      {fields.length === 0 && <p className="text-center py-8 text-muted-foreground text-sm">Noch keine Felder hinzugefügt.</p>}
                     </div>
-                  </Card>
-                </div>
+                  </AdminCard>
+                </AdminSection>
               ) : (
-                <Card className="p-12 text-center text-muted-foreground">
+                <AdminCard className="p-12 text-center text-muted-foreground">
                   Kein Formular ausgewählt oder erstellt.
-                </Card>
+                </AdminCard>
               )}
             </div>
           </TabsContent>
@@ -406,15 +399,13 @@ const Formulare = () => {
               </Select>
             </div>
 
-            <div className="space-y-3">
+            <AdminSection spacing="sm">
               {filteredSubs.map((s) => {
                 const email = findEmail(s);
                 const dateObj = new Date(s.created_at);
                 return (
-                  <Card key={s.id} className="p-4 bg-card border-border shadow-sm hover:border-primary/30 transition-colors">
+                  <AdminCard key={s.id} className="p-4 hover:border-primary/30 transition-colors">
                     <div className="flex flex-col lg:flex-row gap-4 lg:items-center">
-                      
-                      {/* Datum / Zeit - Spalte 1 */}
                       <div className="flex flex-row lg:flex-col gap-2 lg:w-32 flex-shrink-0">
                         <div className="flex items-center gap-1.5 p-2 bg-muted/30 rounded border text-xs font-medium flex-1 justify-center lg:justify-start">
                           <Calendar className="h-3 w-3 text-muted-foreground" />
@@ -426,7 +417,6 @@ const Formulare = () => {
                         </div>
                       </div>
 
-                      {/* Titel / Quelle - Spalte 2 */}
                       <div className="lg:w-40 flex-shrink-0">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Titel/Quelle</div>
                         <div className="p-2 bg-muted/30 rounded border text-xs font-bold truncate mb-1">
@@ -435,7 +425,6 @@ const Formulare = () => {
                         <Badge variant="outline" className="text-[9px] uppercase h-5 bg-background">REQUEST</Badge>
                       </div>
 
-                      {/* Daten - Spalte 3 (Flexibel) */}
                       <div className="flex-1 min-w-[200px]">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Eingabe-Daten</div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -457,7 +446,6 @@ const Formulare = () => {
                         )}
                       </div>
 
-                      {/* Notiz - Spalte 4 */}
                       <div className="lg:w-48 flex-shrink-0">
                         <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Notiz</div>
                         <Textarea 
@@ -468,7 +456,6 @@ const Formulare = () => {
                         />
                       </div>
 
-                      {/* Status / Aktionen - Spalte 5 */}
                       <div className="flex flex-row lg:flex-col items-center gap-2 lg:w-36 flex-shrink-0">
                         <Select value={s.status} onValueChange={(v) => updateSubmissionStatus(s.id, v as any)}>
                           <SelectTrigger className={`h-8 text-[11px] font-bold ${s.status === 'confirmed' ? 'text-green-600 border-green-200 bg-green-50/50' : s.status === 'cancelled' ? 'text-destructive border-red-200 bg-red-50/50' : 'text-orange-500 border-orange-200 bg-orange-50/50'}`}>
@@ -486,50 +473,51 @@ const Formulare = () => {
                           </Button>
                         )}
                       </div>
-
                     </div>
-                  </Card>
+                  </AdminCard>
                 );
               })}
               {filteredSubs.length === 0 && <p className="text-center py-12 text-sm text-muted-foreground bg-muted/10 rounded-lg border-2 border-dashed">Keine Eingaben vorhanden.</p>}
-            </div>
+            </AdminSection>
           </TabsContent>
 
           {isAdmin && (
             <TabsContent value="emails" className="space-y-4 mt-6">
-              <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-primary" />
-                <h3 className="font-bold">E-Mail-Vorlagen pro Formular</h3>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Variablen entsprechen den Feld-Namen des jeweiligen Formulars (z. B. <code>{`{{vorname}}`}</code>, <code>{`{{email}}`}</code>) plus <code>{`{{form_title}}`}</code>.
-              </p>
-              {forms.map((f) => (
-                <details key={f.id} className="group" open={activeForm?.id === f.id}>
-                  <summary className="cursor-pointer p-3 bg-muted/30 rounded-lg font-bold flex items-center justify-between">
-                    {f.title}
-                    <Badge variant="outline">{f.published ? "Öffentlich" : "Entwurf"}</Badge>
-                  </summary>
-                  <div className="grid md:grid-cols-2 gap-4 mt-4">
-                    <EmailTemplateEditor
-                      triggerKey={`form_${f.id}_confirmed`}
-                      title={`✓ Bestätigung – ${f.title}`}
-                      defaultSubject={`Ihre Anfrage wurde angenommen`}
-                      defaultBody={`Hallo,\n\nvielen Dank für Ihre Anfrage zu „{{form_title}}". Wir haben sie geprüft und freuen uns, sie zu bestätigen.\n\nMit freundlichen Grüßen\nKH Webs`}
-                    />
-                    <EmailTemplateEditor
-                      triggerKey={`form_${f.id}_cancelled`}
-                      title={`✗ Ablehnung – ${f.title}`}
-                      defaultSubject={`Ihre Anfrage konnte nicht angenommen werden`}
-                      defaultBody={`Hallo,\n\nleider können wir Ihre Anfrage zu „{{form_title}}" nicht bearbeiten.\n\nMit freundlichen Grüßen\nKH Webs`}
-                    />
-                  </div>
-                </details>
-              ))}
+              <AdminSection spacing="md">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-primary" />
+                  <h3 className="font-bold">E-Mail-Vorlagen pro Formular</h3>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Variablen entsprechen den Feld-Namen des jeweiligen Formulars (z. B. <code>{`{{vorname}}`}</code>, <code>{`{{email}}`}</code>) plus <code>{`{{form_title}}`}</code>.
+                </p>
+                {forms.map((f) => (
+                  <details key={f.id} className="group" open={activeForm?.id === f.id}>
+                    <summary className="cursor-pointer p-3 bg-muted/30 rounded-lg font-bold flex items-center justify-between">
+                      {f.title}
+                      <Badge variant="outline">{f.published ? "Öffentlich" : "Entwurf"}</Badge>
+                    </summary>
+                    <div className="grid md:grid-cols-2 gap-4 mt-4">
+                      <EmailTemplateEditor
+                        triggerKey={`form_${f.id}_confirmed`}
+                        title={`✓ Bestätigung – ${f.title}`}
+                        defaultSubject={`Ihre Anfrage wurde angenommen`}
+                        defaultBody={`Hallo,\n\nvielen Dank für Ihre Anfrage zu „{{form_title}}". Wir haben sie geprüft und freuen uns, sie zu bestätigen.\n\nMit freundlichen Grüßen\nKH Webs`}
+                      />
+                      <EmailTemplateEditor
+                        triggerKey={`form_${f.id}_cancelled`}
+                        title={`✗ Ablehnung – ${f.title}`}
+                        defaultSubject={`Ihre Anfrage konnte nicht angenommen werden`}
+                        defaultBody={`Hallo,\n\nleider können wir Ihre Anfrage zu „{{form_title}}" nicht bearbeiten.\n\nMit freundlichen Grüßen\nKH Webs`}
+                      />
+                    </div>
+                  </details>
+                ))}
+              </AdminSection>
             </TabsContent>
           )}
         </Tabs>
-      </div>
+      </AdminContentWrapper>
     </AdminLayout>
   );
 };

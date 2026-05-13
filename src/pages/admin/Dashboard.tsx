@@ -1,16 +1,16 @@
 import AdminLayout from "@/components/admin/AdminLayout";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
-import { Newspaper, CalendarDays, Clock, CheckCircle2, FileText, ExternalLink, BellDot } from "lucide-react";
+import { Newspaper, CalendarDays, Clock, CheckCircle2, FileText, ExternalLink, BellDot, LayoutDashboard } from "lucide-react";
 import { Link } from "react-router-dom";
+import { AdminPageHeader, AdminCard, AdminSection, AdminContentWrapper } from "@/components/admin";
 
 const Dashboard = () => {
   const { userId } = useAuth();
-  const { currentTenant, isTenantAdmin } = useTenant();
+  const { currentTenant } = useTenant();
   const [stats, setStats] = useState({ news: 0, published: 0, pending: 0, upcoming: 0 });
   const [myAppts, setMyAppts] = useState<any[]>([]);
   const [mySubs, setMySubs] = useState<any[]>([]);
@@ -27,7 +27,6 @@ const Dashboard = () => {
       setLoading(true);
       const today = new Date().toISOString().split("T")[0];
       
-      // 🔑 Alle Abfragen mit tenant_id filtern
       const [news, pub, pend, up, ap, sb, fm] = await Promise.all([
         supabase.from("content_blocks").select("id", { count: "exact", head: true }).eq("tenant_id", currentTenant.id),
         supabase.from("content_blocks").select("id", { count: "exact", head: true }).eq("tenant_id", currentTenant.id).eq("published", true),
@@ -61,61 +60,72 @@ const Dashboard = () => {
     load();
   }, [userId, currentTenant]);
 
-  const cards = [
-    { label: "News-Bereiche", value: stats.news, icon: Newspaper },
-    { label: "Veröffentlicht", value: stats.published, icon: CheckCircle2 },
-    { label: "Offene Anfragen", value: stats.pending, icon: Clock },
-    { label: "Kommende Termine", value: stats.upcoming, icon: CalendarDays },
-  ];
-
   if (!currentTenant) {
     return (
       <AdminLayout>
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold">Dashboard</h1>
-            <p className="text-muted-foreground">Übersicht & deine zugewiesenen Aufgaben.</p>
-          </div>
-          <Card className="p-12 text-center text-muted-foreground">
+        <AdminContentWrapper>
+          <AdminPageHeader 
+            icon={LayoutDashboard} 
+            title="Dashboard" 
+            description="Übersicht & deine zugewiesenen Aufgaben." 
+          />
+          <AdminCard className="p-12 text-center text-muted-foreground">
             <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
-          </Card>
-        </div>
+          </AdminCard>
+        </AdminContentWrapper>
       </AdminLayout>
     );
   }
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Übersicht für Mandant: <span className="font-medium">{currentTenant.name}</span>
-          </p>
-        </div>
+      <AdminContentWrapper>
+        <AdminPageHeader 
+          icon={LayoutDashboard} 
+          title="Dashboard" 
+          description={`Übersicht für Mandant: ${currentTenant.name}`} 
+        />
 
         {loading ? (
           <div className="text-center py-12 text-muted-foreground">Lade Dashboard...</div>
         ) : (
-          <>
+          <AdminSection spacing="lg">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {cards.map((c) => (
-                <Card key={c.label} className="p-5 flex items-center gap-4">
-                  <div className="p-3 rounded-md bg-muted"><c.icon className="h-5 w-5" /></div>
-                  <div>
-                    <div className="text-2xl font-bold">{c.value}</div>
-                    <div className="text-sm text-muted-foreground">{c.label}</div>
-                  </div>
-                </Card>
-              ))}
+              <AdminCard className="p-5 flex items-center gap-4">
+                <div className="p-3 rounded-md bg-primary/10 text-primary"><Newspaper className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-2xl font-bold">{stats.news}</div>
+                  <div className="text-sm text-muted-foreground">News-Bereiche</div>
+                </div>
+              </AdminCard>
+              <AdminCard className="p-5 flex items-center gap-4">
+                <div className="p-3 rounded-md bg-primary/10 text-primary"><CheckCircle2 className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-2xl font-bold">{stats.published}</div>
+                  <div className="text-sm text-muted-foreground">Veröffentlicht</div>
+                </div>
+              </AdminCard>
+              <AdminCard className="p-5 flex items-center gap-4">
+                <div className="p-3 rounded-md bg-primary/10 text-primary"><Clock className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-2xl font-bold">{stats.pending}</div>
+                  <div className="text-sm text-muted-foreground">Offene Anfragen</div>
+                </div>
+              </AdminCard>
+              <AdminCard className="p-5 flex items-center gap-4">
+                <div className="p-3 rounded-md bg-primary/10 text-primary"><CalendarDays className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-2xl font-bold">{stats.upcoming}</div>
+                  <div className="text-sm text-muted-foreground">Kommende Termine</div>
+                </div>
+              </AdminCard>
             </div>
 
             <div className="grid lg:grid-cols-2 gap-6">
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold flex items-center gap-2"><CalendarDays className="h-5 w-5" /> Meine Termine</h2>
-                  <Badge variant="secondary">{myAppts.length}</Badge>
-                </div>
+              <AdminCard 
+                title="Meine Termine" 
+                actions={<Badge variant="secondary">{myAppts.length}</Badge>}
+              >
                 {myAppts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Keine zugewiesenen Termine für diesen Mandanten.</p>
                 ) : (
@@ -133,13 +143,12 @@ const Dashboard = () => {
                     ))}
                   </ul>
                 )}
-              </Card>
+              </AdminCard>
 
-              <Card className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold flex items-center gap-2"><FileText className="h-5 w-5" /> Meine Formular-Eingaben</h2>
-                  <Badge variant="secondary">{mySubs.length}</Badge>
-                </div>
+              <AdminCard 
+                title="Meine Formular-Eingaben" 
+                actions={<Badge variant="secondary">{mySubs.length}</Badge>}
+              >
                 {mySubs.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Dir sind keine Eingaben zugewiesen.</p>
                 ) : (
@@ -163,11 +172,11 @@ const Dashboard = () => {
                     ))}
                   </ul>
                 )}
-              </Card>
+              </AdminCard>
             </div>
-          </>
+          </AdminSection>
         )}
-      </div>
+      </AdminContentWrapper>
     </AdminLayout>
   );
 };
