@@ -113,17 +113,36 @@ const Formulare = () => {
   };
 
   const addForm = async () => {
-    if (!currentTenant?.id) return toast.error("Kein Mandant ausgewählt");
+    if (!currentTenant?.id) {
+      toast.error("Kein Mandant ausgewählt");
+      return;
+    }
+    
+    if (!isTenantAdmin) {
+      toast.error("Nur Mandanten-Administratoren können Formulare erstellen");
+      return;
+    }
+    
     const { data, error } = await supabase
       .from("forms")
       .insert({ 
         title: "Neues Formular", 
-        position: forms.length, 
-        tenant_id: currentTenant.id 
+        position: forms.length,
+        tenant_id: currentTenant.id,  // ← WICHTIG: tenant_id muss explizit gesetzt werden
+        published: false,              // ← Standardwert explizit setzen
+        submit_label: "Absenden",      // ← Standardwert
+        success_message: "Vielen Dank für Ihre Nachricht!"
       })
       .select()
       .single();
-    if (error) return toast.error(error.message);
+      
+    if (error) {
+      console.error("Fehler beim Erstellen:", error);
+      toast.error(error.message);
+      return;
+    }
+    
+    toast.success("Formular erstellt");
     await loadForms(); 
     setActiveId(data.id);
   };
