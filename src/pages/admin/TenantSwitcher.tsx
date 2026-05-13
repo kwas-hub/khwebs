@@ -17,16 +17,40 @@ export const TenantSwitcher = () => {
   const { tenants, currentTenant, setCurrentTenantId, isTenantAdmin, loading } = useTenant();
   const navigate = useNavigate();
 
-  // Wenn noch geladen wird, zeige nichts
-  if (loading) return null;
+  // DEBUG: Console Ausgaben
+  console.log("TenantSwitcher - tenants:", tenants);
+  console.log("TenantSwitcher - currentTenant:", currentTenant);
+  console.log("TenantSwitcher - loading:", loading);
+
+  // Wenn noch geladen wird, zeige einen Lade-Indikator
+  if (loading) {
+    return (
+      <Button variant="outline" className="flex items-center gap-2 h-9 px-3">
+        <Building2 className="h-4 w-4 text-muted-foreground animate-pulse" />
+        <span className="text-muted-foreground">Laden...</span>
+      </Button>
+    );
+  }
 
   // Wenn keine Mandanten vorhanden sind, zeige nichts
-  if (tenants.length === 0) return null;
+  if (tenants.length === 0) {
+    console.log("Keine Mandanten, rendere nichts");
+    return null;
+  }
+
+  console.log("Rendere TenantSwitcher mit", tenants.length, "Mandanten");
 
   const adminTenants = tenants.filter(t => t.role === "admin");
   const memberTenants = tenants.filter(t => t.role === "member");
 
-  // Zeige immer den Button, auch wenn currentTenant null ist
+  // BUTTON: Zeige entweder aktuellen Mandanten oder "Mandant wählen"
+  const getButtonText = () => {
+    if (currentTenant) {
+      return currentTenant.name;
+    }
+    return "Mandant wählen";
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -35,17 +59,11 @@ export const TenantSwitcher = () => {
           className="flex items-center gap-2 h-9 px-3 hover:bg-accent/50 transition-colors"
         >
           <Building2 className="h-4 w-4 text-muted-foreground" />
-          {currentTenant ? (
-            <>
-              <span className="max-w-[150px] truncate font-medium">{currentTenant.name}</span>
-              {isTenantAdmin && (
-                <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
-                  Admin
-                </Badge>
-              )}
-            </>
-          ) : (
-            <span className="text-muted-foreground">Mandant wählen</span>
+          <span className="max-w-[150px] truncate font-medium">{getButtonText()}</span>
+          {currentTenant && isTenantAdmin && (
+            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
+              Admin
+            </Badge>
           )}
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
@@ -69,7 +87,10 @@ export const TenantSwitcher = () => {
             {adminTenants.map((tenant) => (
               <DropdownMenuItem
                 key={tenant.id}
-                onClick={() => setCurrentTenantId(tenant.id)}
+                onClick={() => {
+                  console.log("Wechsle zu:", tenant.name);
+                  setCurrentTenantId(tenant.id);
+                }}
                 className="flex items-center justify-between cursor-pointer py-2.5"
               >
                 <div className="flex flex-col">
@@ -105,7 +126,10 @@ export const TenantSwitcher = () => {
             {memberTenants.map((tenant) => (
               <DropdownMenuItem
                 key={tenant.id}
-                onClick={() => setCurrentTenantId(tenant.id)}
+                onClick={() => {
+                  console.log("Wechsle zu:", tenant.name);
+                  setCurrentTenantId(tenant.id);
+                }}
                 className="flex items-center justify-between cursor-pointer py-2.5"
               >
                 <div className="flex flex-col">
