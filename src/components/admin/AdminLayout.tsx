@@ -41,7 +41,9 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
     if (!loading && !session) navigate("/auth", { replace: true });
   }, [loading, session, navigate]);
 
-  useEffect(() => { setIsMobileMenuOpen(false); }, [location]);
+  useEffect(() => { 
+    setIsMobileMenuOpen(false); 
+  }, [location]);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarCollapsed));
@@ -157,14 +159,16 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </button>
       </aside>
 
-      {/* MOBILE HEADER - NUR MIT MENÜ BUTTON, KEINE BENACHRICHTIGUNGEN/TOGGLE (sind in Bottom Nav) */}
+      {/* MOBILE HEADER */}
       <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-border/50 bg-background/80 backdrop-blur-lg sticky top-0 z-50">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-primary" />
           <span className="font-bold text-sm tracking-tight">Admin Panel</span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-1.5 hover:bg-secondary rounded-lg transition-colors bg-secondary/50">
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-1.5 hover:bg-secondary rounded-lg transition-colors bg-secondary/50"
+        >
           {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </header>
@@ -180,16 +184,22 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
             </div>
             <div className="flex-1 flex flex-col justify-center gap-6">
               {items.map((item) => (
-                <NavLink key={item.url} to={item.url} end={item.end}
+                <NavLink 
+                  key={item.url} 
+                  to={item.url} 
+                  end={item.end}
                   className="flex items-center gap-4 text-2xl font-bold transition-all active:scale-95"
-                  onClick={() => setIsMobileMenuOpen(false)}>
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
                   <item.icon size={28} className="text-primary" />
                   {item.title}
                 </NavLink>
               ))}
             </div>
-            <button onClick={handleLogout}
-              className="flex items-center justify-center gap-3 w-full py-4 rounded-2xl bg-destructive/10 text-destructive font-bold">
+            <button 
+              onClick={handleLogout}
+              className="flex items-center justify-center gap-3 w-full py-4 rounded-2xl bg-destructive/10 text-destructive font-bold"
+            >
               <LogOut size={20} /> Abmelden
             </button>
           </div>
@@ -202,9 +212,9 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         <header className="hidden md:flex h-16 items-center justify-between px-6 border-b border-border/40 bg-card/30 backdrop-blur-md gap-4">
           {/* Linke Seite: Live System Status + TenantSwitcher */}
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-[11px] font-bold text-green-600 uppercase tracking-widest">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              Live System
+              <span className="text-[11px] font-bold text-green-600 uppercase tracking-widest">Live System</span>
             </div>
             <TenantSwitcher />
           </div>
@@ -229,17 +239,21 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </div>
       </main>
 
-      {/* MOBILE BOTTOM NAVIGATION - HIER SIND BENACHRICHTIGUNGEN UND THEME TOGGLE */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-xl border-t border-border/50 px-4 py-2 flex items-center justify-around z-50">
-        {/* Navigation Items */}
+      {/* MOBILE BOTTOM NAVIGATION */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-xl border-t border-border/50 px-4 py-2 flex items-center justify-between z-50">
+        {/* Navigation Links */}
         <div className="flex items-center justify-around flex-1">
           {items.slice(0, 4).map((item) => (
-            <NavLink key={item.url} to={item.url} end={item.end}
+            <NavLink 
+              key={item.url} 
+              to={item.url} 
+              end={item.end}
               className={({ isActive }) => cn(
                 "flex flex-col items-center gap-1 transition-all duration-200 p-2 rounded-lg",
                 isActive ? "text-primary" : "text-muted-foreground opacity-60"
               )}
-              onClick={() => setIsMobileMenuOpen(false)}>
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
               <item.icon size={20} />
               <span className="text-[9px] font-bold uppercase tracking-tighter">{item.title.split(' ')[0]}</span>
             </NavLink>
@@ -247,9 +261,9 @@ const AdminLayout = ({ children }: { children: ReactNode }) => {
         </div>
         
         {/* Trennlinie */}
-        <div className="h-8 w-px bg-border/60 mx-1" />
+        <div className="h-8 w-px bg-border/60 mx-2" />
         
-        {/* Rechte Icons: Benachrichtigungen + Theme Toggle */}
+        {/* Aktionen */}
         <div className="flex items-center gap-3">
           <NotificationBell />
           <ThemeToggle />
