@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, Building2, UserPlus, Users, Shield, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Trash2, Plus, Building2, UserPlus, Users, Shield, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   AdminPageHeader,
@@ -24,7 +24,7 @@ type Member = { user_id: string; role: string; email: string | null; display_nam
 
 const TenantsPage = () => {
   const { userId, isAdmin } = useAuth();
-  const { currentTenant, isTenantAdmin, reload, tenants, setCurrentTenantId } = useTenant();
+  const { currentTenant, isTenantAdmin, reload, tenants } = useTenant();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [creating, setCreating] = useState(false);
@@ -102,10 +102,6 @@ const TenantsPage = () => {
     setName("");
     setSlug("");
     await reload();
-    
-    if (tenant && !memberError) {
-      setCurrentTenantId(tenant.id);
-    }
   };
 
   const saveTenant = async () => {
@@ -124,7 +120,8 @@ const TenantsPage = () => {
     const { error } = await supabase.from("tenants").delete().eq("id", currentTenant.id);
     if (error) return toast.error(error.message);
     toast.success("Mandant gelöscht");
-    localStorage.removeItem("active-tenant-id");
+    await reload();
+    // Nach dem Löschen auf ersten verfügbaren Mandanten wechseln oder Seite neu laden
     window.location.reload();
   };
 
@@ -169,67 +166,153 @@ const TenantsPage = () => {
   const adminCount = members.filter(m => m.role === "admin").length;
   const memberCount = members.filter(m => m.role === "member").length;
 
+  if (!currentTenant) {
+    return (
+      <AdminLayout>
+        <AdminContentWrapper maxWidth="xl">
+          <AdminPageHeader 
+            icon={Building2} 
+            title="Mandanten-Verwaltung" 
+            description="Verwalte Mandanten, Mitglieder und Berechtigungen"
+            badge={`${tenants.length} Mandant(en)`}
+          />
+          
+          {/* Neuen Mandanten anlegen (nur für Super-Admins) */}
+          {isAdmin && (
+            <AdminSection spacing="lg">
+              <AdminCard 
+                title="Neuen Mandanten anlegen"
+                description="Erstelle einen neuen unabhängigen Mandanten"
+                icon={<Building2 className="h-4 w-4" />}
+              >
+                <div className="space-y-4">
+                  <AdminFormRow columns={2}>
+                    <AdminFieldGroup label="Name" required>
+                      <Input 
+                        value={name} 
+                        onChange={e => setName(e.target.value)} 
+                        placeholder="z. B. Acme GmbH" 
+                      />
+                    </AdminFieldGroup>
+                    <AdminFieldGroup label="Slug" required>
+                      <Input 
+                        value={slug} 
+                        onChange={e => setSlug(e.target.value)} 
+                        placeholder="acme" 
+                      />
+                    </AdminFieldGroup>
+                  </AdminFormRow>
+                  
+                  <div className="bg-muted/30 rounded-lg p-3 border">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div className="text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground mb-1">Hinweis:</p>
+                        <p>Du wirst automatisch als Administrator hinzugefügt.</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <Button onClick={createTenant} disabled={creating}>
+                    {creating ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                        Wird erstellt...
+                      </div>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 mr-1" />
+                        Mandant anlegen
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </AdminCard>
+            </AdminSection>
+          )}
+
+          {/* Hinweis für Super-Admins */}
+          {isAdmin && tenants.length === 0 && (
+            <AdminSection spacing="lg">
+              <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-center">
+                <Building2 className="h-8 w-8 mx-auto mb-2 text-primary opacity-50" />
+                <p className="text-sm text-muted-foreground">
+                  Willkommen! Erstelle deinen ersten Mandanten, um loszulegen.
+                </p>
+              </div>
+            </AdminSection>
+          )}
+
+          {!isAdmin && (
+            <AdminCard className="p-12 text-center">
+              <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
+              <p className="text-muted-foreground">Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
+            </AdminCard>
+          )}
+        </AdminContentWrapper>
+      </AdminLayout>
+    );
+  }
+
   return (
     <AdminLayout>
       <AdminContentWrapper maxWidth="xl">
         <AdminPageHeader 
           icon={Building2} 
           title="Mandanten-Verwaltung" 
-          description="Verwalte Mandanten, Mitglieder und Berechtigungen"
+          description={`Verwalte Mandanten, Mitglieder und Berechtigungen – Aktuell: ${currentTenant.name}`}
           badge={`${tenants.length} Mandant(en)`}
         />
 
         {/* Aktueller Mandant */}
-        {currentTenant && (
-          <AdminSection spacing="lg">
-            <AdminCard 
-              title="Aktueller Mandant"
-              description="Einstellungen für den aktuell ausgewählten Mandanten"
-              actions={
-                <Badge variant={isTenantAdmin ? "default" : "secondary"} className="flex items-center gap-1">
-                  <Shield className="h-3 w-3" />
-                  {isTenantAdmin ? "Administrator" : "Mitglied"}
-                </Badge>
-              }
-            >
-              <div className="space-y-4">
-                <AdminFormRow columns={2}>
-                  <AdminFieldGroup label="Name" required>
-                    <Input 
-                      value={editName} 
-                      onChange={e => setEditName(e.target.value)} 
-                      disabled={!isTenantAdmin}
-                      placeholder="z.B. Acme GmbH"
-                    />
-                  </AdminFieldGroup>
-                  <AdminFieldGroup label="Slug" required>
-                    <Input 
-                      value={editSlug} 
-                      onChange={e => setEditSlug(e.target.value)} 
-                      disabled={!isTenantAdmin}
-                      placeholder="acme"
-                    />
-                  </AdminFieldGroup>
-                </AdminFormRow>
-                
-                {isTenantAdmin && (
-                  <div className="flex gap-2 pt-2">
-                    <Button onClick={saveTenant} disabled={saving}>
-                      {saving ? "Wird gespeichert..." : "Speichern"}
-                    </Button>
-                    <Button variant="destructive" onClick={deleteTenant}>
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Mandant löschen
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </AdminCard>
-          </AdminSection>
-        )}
+        <AdminSection spacing="lg">
+          <AdminCard 
+            title="Aktueller Mandant"
+            description="Einstellungen für den aktuell ausgewählten Mandanten"
+            actions={
+              <Badge variant={isTenantAdmin ? "default" : "secondary"} className="flex items-center gap-1">
+                <Shield className="h-3 w-3" />
+                {isTenantAdmin ? "Administrator" : "Mitglied"}
+              </Badge>
+            }
+          >
+            <div className="space-y-4">
+              <AdminFormRow columns={2}>
+                <AdminFieldGroup label="Name" required>
+                  <Input 
+                    value={editName} 
+                    onChange={e => setEditName(e.target.value)} 
+                    disabled={!isTenantAdmin}
+                    placeholder="z.B. Acme GmbH"
+                  />
+                </AdminFieldGroup>
+                <AdminFieldGroup label="Slug" required>
+                  <Input 
+                    value={editSlug} 
+                    onChange={e => setEditSlug(e.target.value)} 
+                    disabled={!isTenantAdmin}
+                    placeholder="acme"
+                  />
+                </AdminFieldGroup>
+              </AdminFormRow>
+              
+              {isTenantAdmin && (
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={saveTenant} disabled={saving}>
+                    {saving ? "Wird gespeichert..." : "Speichern"}
+                  </Button>
+                  <Button variant="destructive" onClick={deleteTenant}>
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Mandant löschen
+                  </Button>
+                </div>
+              )}
+            </div>
+          </AdminCard>
+        </AdminSection>
 
         {/* Mitglieder (nur für Tenant-Admins sichtbar) */}
-        {currentTenant && isTenantAdmin && (
+        {isTenantAdmin && (
           <AdminSection spacing="lg">
             <AdminCard 
               title="Mitglieder"
@@ -370,7 +453,7 @@ const TenantsPage = () => {
                     <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
                     <div className="text-xs text-muted-foreground">
                       <p className="font-medium text-foreground mb-1">Hinweis:</p>
-                      <p>Du wirst automatisch als Administrator hinzugefügt und nach der Erstellung zu diesem Mandanten gewechselt.</p>
+                      <p>Du wirst automatisch als Administrator hinzugefügt und kannst dann zu diesem Mandanten wechseln.</p>
                     </div>
                   </div>
                 </div>
@@ -390,70 +473,6 @@ const TenantsPage = () => {
                 </Button>
               </div>
             </AdminCard>
-          </AdminSection>
-        )}
-
-        {/* Meine Mandanten (Übersicht) */}
-        <AdminSection spacing="lg">
-          <AdminCard 
-            title="Meine Mandanten"
-            description="Wechsle zwischen deinen zugewiesenen Mandanten"
-            icon={<Building2 className="h-4 w-4" />}
-          >
-            {tenants.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
-                <Building2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Keine Mandanten zugeordnet</p>
-                {isAdmin && (
-                  <p className="text-xs mt-1">Erstelle oben einen neuen Mandanten, um zu beginnen.</p>
-                )}
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {tenants.map(tenant => (
-                  <div 
-                    key={tenant.id} 
-                    className={`flex items-center justify-between p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                      currentTenant?.id === tenant.id 
-                        ? 'bg-primary/5 border-primary shadow-sm' 
-                        : 'bg-card border-border hover:border-primary/50 hover:bg-muted/30'
-                    }`}
-                    onClick={() => setCurrentTenantId(tenant.id)}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold">{tenant.name}</span>
-                        {currentTenant?.id === tenant.id && (
-                          <Badge variant="default" className="text-[9px] flex items-center gap-1">
-                            <CheckCircle2 className="h-2.5 w-2.5" />
-                            Aktuell
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5 font-mono">
-                        {tenant.slug}
-                      </div>
-                    </div>
-                    <Badge variant={tenant.role === "admin" ? "default" : "secondary"} className="flex items-center gap-1">
-                      <Shield className="h-3 w-3" />
-                      {tenant.role === "admin" ? "Administrator" : "Mitglied"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </AdminCard>
-        </AdminSection>
-
-        {/* Hinweis für Super-Admins */}
-        {isAdmin && !currentTenant && tenants.length === 0 && (
-          <AdminSection spacing="lg">
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-center">
-              <Building2 className="h-8 w-8 mx-auto mb-2 text-primary opacity-50" />
-              <p className="text-sm text-muted-foreground">
-                Willkommen! Erstelle deinen ersten Mandanten, um loszulegen.
-              </p>
-            </div>
           </AdminSection>
         )}
       </AdminContentWrapper>
