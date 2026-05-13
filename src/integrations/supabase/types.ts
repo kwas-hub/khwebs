@@ -73,6 +73,155 @@ export type Database = {
           },
         ]
       }
+      document_chunks: {
+        Row: {
+          chunk_index: number
+          chunk_text: string
+          created_at: string
+          document_id: string
+          embedding: string
+          id: string
+          page_id: string
+          tenant_id: string
+        }
+        Insert: {
+          chunk_index?: number
+          chunk_text?: string
+          created_at?: string
+          document_id: string
+          embedding: string
+          id?: string
+          page_id: string
+          tenant_id?: string
+        }
+        Update: {
+          chunk_index?: number
+          chunk_text?: string
+          created_at?: string
+          document_id?: string
+          embedding?: string
+          id?: string
+          page_id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "pdf_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_chunks_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "pdf_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_chunks_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extracted_fields: {
+        Row: {
+          created_at: string
+          document_id: string
+          fields: Json
+          id: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          fields?: Json
+          id?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          fields?: Json
+          id?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_fields_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "pdf_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_fields_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_ai_config: {
+        Row: {
+          api_key_encrypted: string | null
+          base_url: string
+          created_at: string
+          embedding_model: string | null
+          id: string
+          is_active: boolean
+          max_tokens: number
+          model_name: string
+          provider: string
+          temperature: number
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          api_key_encrypted?: string | null
+          base_url?: string
+          created_at?: string
+          embedding_model?: string | null
+          id?: string
+          is_active?: boolean
+          max_tokens?: number
+          model_name?: string
+          provider: string
+          temperature?: number
+          tenant_id?: string
+          updated_at?: string
+        }
+        Update: {
+          api_key_encrypted?: string | null
+          base_url?: string
+          embedding_model?: string | null
+          id?: string
+          is_active?: boolean
+          max_tokens?: number
+          model_name?: string
+          provider?: string
+          temperature?: number
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_ai_config_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       appointments: {
         Row: {
           appointment_date: string
@@ -878,6 +1027,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_access_tenant_or_global: {
+        Args: { _uid: string; _tid: string }
+        Returns: boolean
+      }
       can_edit: { Args: { _user_id: string }; Returns: boolean }
       current_user_tenant_id: { Args: never; Returns: string }
       default_tenant_id: { Args: never; Returns: string }
@@ -899,6 +1052,24 @@ export type Database = {
       is_tenant_admin: {
         Args: { _tid: string; _uid: string }
         Returns: boolean
+      }
+      match_chunks_for_rag: {
+        Args: {
+          filter_document: string
+          match_count?: number
+          match_tenant: string
+          query_embedding: string
+        }
+        Returns: { chunk_text: string }[]
+      }
+      match_document_chunks: {
+        Args: {
+          exclude_document: string
+          match_count?: number
+          match_tenant: string
+          query_embedding: string
+        }
+        Returns: { document_id: string; document_name: string; score: number }[]
       }
       user_in_tenant: { Args: { _tid: string; _uid: string }; Returns: boolean }
     }

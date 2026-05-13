@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, MoveUp, MoveDown } from "lucide-react";
+import { Loader2, Upload, RotateCw, Trash2, ChevronUp, ChevronDown, Sparkles, Download, FileText, Bug, Undo2, Plus, Settings, Scissors, MoveUp, MoveDown, Wand2, Tags, GitMerge, Search, MessageSquare, Scale, ListTree } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import * as pdfjsLib from "pdfjs-dist";
@@ -25,6 +25,17 @@ import {
   AdminFieldGroup,
   AdminDivider,
 } from "@/components/admin";
+import { AIChatSidebar } from "@/components/admin/AIChatSidebar";
+import { AIConfigTab } from "@/components/admin/AIConfigTab";
+import { invokeAiTenant } from "@/lib/aiTenantEdge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // PDF.js Worker Konfiguration
 const pdfWorkerUrl = new URL(
@@ -83,6 +94,16 @@ const AIPage = () => {
   // Global split settings
   const [globalSplitEnabled, setGlobalSplitEnabled] = useState(false);
   const [globalSplitRegex, setGlobalSplitRegex] = useState("");
+
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [nerOpen, setNerOpen] = useState(false);
+  const [nerData, setNerData] = useState<Record<string, unknown> | null>(null);
+  const [similarOpen, setSimilarOpen] = useState(false);
+  const [similarRows, setSimilarRows] = useState<{ document_id: string; document_name: string; score: number }[]>([]);
+  const [discOpen, setDiscOpen] = useState(false);
+  const [discExpected, setDiscExpected] = useState('{\n  "Betrag": "100.00",\n  "Lieferant": "Beispiel GmbH"\n}');
 
   // Refs für Cleanup
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -146,13 +167,46 @@ const AIPage = () => {
     setDocTypes((t.data ?? []) as DocType[]);
     setKeywords((k.data ?? []) as Keyword[]);
   }, [currentTenant?.id]);
+
+  const loadAiStatus = useCallback(async () => {
+    if (!currentTenant?.id) {
+      setAiEnabled(false);
+      return;
+    }
+    try {
+      const res = await invokeAiTenant<{ active?: boolean }>({
+        action: "ai-status",
+        tenant_id: currentTenant.id,
+      });
+      setAiEnabled(!!res.active);
+    } catch {
+      setAiEnabled(false);
+    }
+  }, [currentTenant?.id]);
+
+  const reindexDocument = useCallback(
+    async (documentId: string) => {
+      if (!currentTenant?.id) return;
+      try {
+        await invokeAiTenant({
+          action: "reindex-document",
+          tenant_id: currentTenant.id,
+          document_id: documentId,
+        });
+      } catch (e) {
+        console.warn("Embedding-Indexierung:", e);
+      }
+    },
+    [currentTenant?.id],
+  );
   
   useEffect(() => { 
     if (currentTenant?.id) {
       loadDocs(); 
       loadTypes();
+      loadAiStatus();
     }
-  }, [loadDocs, loadTypes, currentTenant?.id]);
+  }, [loadDocs, loadTypes, loadAiStatus, currentTenant?.id]);
 
   // Thumbnails für alle Seiten aller aktiven Dokumente laden
   useEffect(() => {
@@ -678,6 +732,7 @@ const AIPage = () => {
       .eq("tenant_id", currentTenant.id);
     
     toast.success(`OCR für ${document.name} abgeschlossen`);
+    await reindexDocument(document.id);
   };
 
   const runOCRForAllPages = async () => {
@@ -893,6 +948,204 @@ const AIPage = () => {
     setKeywords(p => p.filter(k => k.id !== id));
   };
 
+  const runDocumentAnalyze = async () => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) {
+      toast.error("KI nicht verfügbar oder kein Dokument");
+      return;
+    }
+    setAiBusy("analyze");
+    try {
+      const cls = await invokeAiTenant<{ result?: { type_id?: string | null; keywords?: string[] } }>({
+        action: "classify-document",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+      });
+      const r = cls.result;
+      const typeId = r?.type_id && docTypes.some(t => t.id === r.type_id) ? r.type_id : null;
+      const kws = Array.isArray(r?.keywords) ? r.keywords : [];
+      await persistDetection(typeId, kws);
+
+      const sum = await invokeAiTenant<{ summary?: string }>({
+        action: "summarize",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+      });
+      const block = `\n\n=== KI-Zusammenfassung ===\n${(sum.summary ?? "").trim()}\n`;
+      const nextNotes = ((activeDoc.notes || notes) + block).trim();
+      setNotes(nextNotes);
+      await supabase.from("pdf_documents").update({ notes: nextNotes }).eq("id", activeDoc.id).eq("tenant_id", currentTenant.id);
+
+      toast.success("Dokument analysiert (Typ, Schlagwörter, Zusammenfassung)");
+      await loadAiStatus();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Analyse fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runExtractEntities = async (persist: boolean) => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    setAiBusy("ner");
+    try {
+      const res = await invokeAiTenant<{ entities?: Record<string, unknown> }>({
+        action: "extract-entities",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+        persist,
+      });
+      setNerData(res.entities ?? {});
+      setNerOpen(true);
+      toast.success(persist ? "Stammdaten extrahiert und gespeichert" : "Stammdaten extrahiert");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Extraktion fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runOcrCorrect = async (scope: "page" | "document") => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    if (scope === "page" && !activeMeta) return;
+    setAiBusy("ocr");
+    try {
+      const res = await invokeAiTenant<{ pages?: { page_index: number; corrected: string }[] }>({
+        action: "correct-ocr",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+        scope,
+        page_index: activeMeta.idx,
+        update_db: true,
+      });
+      const list = res.pages ?? [];
+      if (scope === "page" && list[0]) {
+        setPageOcrText(list[0].corrected);
+        setWordBlocks([]);
+        setOcrCache(prev => {
+          const next = { ...prev };
+          delete next[activeMeta.idx];
+          return next;
+        });
+      }
+      toast.success("OCR-Korrektur angewendet");
+      await reindexDocument(activeDoc.id);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "OCR-Korrektur fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runAiSplitSuggest = async () => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    setAiBusy("split");
+    try {
+      const res = await invokeAiTenant<{ splits?: number[] }>({
+        action: "suggest-split",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+      });
+      const splits = res.splits ?? [];
+      if (!splits.length) {
+        toast.message("Keine Splittpunkte erkannt");
+        return;
+      }
+      const orderIdx = splits[0];
+      if (orderIdx < 0 || orderIdx >= pageOrder.length) {
+        toast.error("Ungültiger Splittvorschlag");
+        return;
+      }
+      setSplitInfo({ pageIndex: orderIdx, match: "KI-Vorschlag", position: 0 });
+      toast.message(`Trennung nach Band-Seite ${orderIdx + 1} vorgeschlagen`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Split-Vorschlag fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runSuggestTags = async () => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    setAiBusy("tags");
+    try {
+      const res = await invokeAiTenant<{ tags?: string[] }>({
+        action: "suggest-tags",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+      });
+      const tags = (res.tags ?? []).join(", ");
+      insertAtCursor(`\n=== KI-Tags ===\n${tags}\n`);
+      toast.success("Tags in Notizen eingefügt");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Tags fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runFindSimilar = async () => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    setAiBusy("sim");
+    try {
+      const res = await invokeAiTenant<{ similar?: { document_id: string; document_name: string; score: number }[] }>({
+        action: "find-similar",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+      });
+      setSimilarRows(res.similar ?? []);
+      setSimilarOpen(true);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Ähnlichkeitssuche fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runValidateDiscrepancy = async () => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    let expected: Record<string, unknown>;
+    try {
+      expected = JSON.parse(discExpected) as Record<string, unknown>;
+    } catch {
+      toast.error("Soll-Daten: kein gültiges JSON");
+      return;
+    }
+    setAiBusy("disc");
+    try {
+      const res = await invokeAiTenant<{ report?: unknown }>({
+        action: "validate-discrepancy",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+        expected,
+      });
+      insertAtCursor(`\n=== Soll/Ist-Prüfung (KI) ===\n${JSON.stringify(res.report, null, 2)}\n`);
+      toast.success("Abweichungsprüfung in Notizen eingefügt");
+      setDiscOpen(false);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Prüfung fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const runSuggestActions = async () => {
+    if (!activeDoc || !currentTenant?.id || !aiEnabled) return;
+    setAiBusy("act");
+    try {
+      const res = await invokeAiTenant<{ actions?: unknown[] }>({
+        action: "suggest-actions",
+        tenant_id: currentTenant.id,
+        document_id: activeDoc.id,
+      });
+      insertAtCursor(`\n=== KI-Folgeaktionen ===\n${JSON.stringify(res.actions ?? [], null, 2)}\n`);
+      toast.success("Folgeaktionen in Notizen eingefügt");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Aktionen fehlgeschlagen");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
   // Cleanup bei unmount
   useEffect(() => {
     return () => {
@@ -961,6 +1214,12 @@ const AIPage = () => {
               <Settings className="h-4 w-4 mr-2" />
               Eigenschaften
             </TabsTrigger>
+            {isTenantAdmin && (
+              <TabsTrigger value="ki-konfiguration">
+                <ListTree className="h-4 w-4 mr-2" />
+                KI-Konfiguration
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* DOKUMENTE TAB */}
@@ -1122,6 +1381,123 @@ const AIPage = () => {
                   className="h-[calc(100vh-280px)] flex flex-col"
                 >
                   <div className="space-y-4 flex-1 flex flex-col">
+                    <div className="flex flex-wrap gap-1.5 pb-2 border-b border-border/50">
+                      {!aiEnabled && (
+                        <p className="text-[10px] text-muted-foreground w-full">
+                          KI-Funktionen sind deaktiviert, solange kein Mandanten-Admin eine aktive KI-Konfiguration hinterlegt hat.
+                        </p>
+                      )}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runDocumentAnalyze()}
+                      >
+                        <Wand2 className="h-3 w-3 mr-1" /> Analysieren
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runOcrCorrect("page")}
+                      >
+                        OCR Seite
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runOcrCorrect("document")}
+                      >
+                        OCR ganz
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runAiSplitSuggest()}
+                      >
+                        <GitMerge className="h-3 w-3 mr-1" /> Split
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runFindSimilar()}
+                      >
+                        <Search className="h-3 w-3 mr-1" /> Ähnlich
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runSuggestTags()}
+                      >
+                        <Tags className="h-3 w-3 mr-1" /> Tags
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runSuggestActions()}
+                      >
+                        Folgeaktionen
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => setDiscOpen(true)}
+                      >
+                        <Scale className="h-3 w-3 mr-1" /> Soll/Ist
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runExtractEntities(false)}
+                      >
+                        Stammdaten
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !!aiBusy || !activeDoc}
+                        onClick={() => void runExtractEntities(true)}
+                      >
+                        Stammdaten speichern
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[10px]"
+                        disabled={!aiEnabled || !activeDoc}
+                        onClick={() => setChatOpen(true)}
+                      >
+                        <MessageSquare className="h-3 w-3 mr-1" /> Chat
+                      </Button>
+                    </div>
                     {/* Erkannter Typ */}
                     <div className="p-3 bg-muted/30 rounded-xl border border-border/50">
                       <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">📌 Erkannter Dokumenttyp</div>
@@ -1371,7 +1747,107 @@ const AIPage = () => {
               </AdminSection>
             </AdminCard>
           </TabsContent>
+
+          {isTenantAdmin && currentTenant && (
+            <TabsContent value="ki-konfiguration" className="space-y-6">
+              <AIConfigTab tenantId={currentTenant.id} onSaved={() => void loadAiStatus()} />
+            </TabsContent>
+          )}
         </Tabs>
+
+        <AIChatSidebar
+          open={chatOpen}
+          onOpenChange={setChatOpen}
+          tenantId={currentTenant?.id ?? ""}
+          documentId={activeDocId}
+          aiEnabled={aiEnabled}
+        />
+
+        <Dialog open={nerOpen} onOpenChange={setNerOpen}>
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Extrahierte Stammdaten</DialogTitle>
+            </DialogHeader>
+            {nerData && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Feld</TableHead>
+                    <TableHead>Wert</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Object.entries(nerData).map(([k, v]) => (
+                    <TableRow key={k}>
+                      <TableCell className="font-mono text-xs">{k}</TableCell>
+                      <TableCell className="text-xs break-all">
+                        {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNerOpen(false)}>
+                Schließen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={similarOpen} onOpenChange={setSimilarOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Ähnliche Dokumente</DialogTitle>
+            </DialogHeader>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="text-right">Score</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {similarRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-xs text-muted-foreground">
+                      Keine Treffer oder noch keine Embeddings (nach OCR indexieren).
+                    </TableCell>
+                  </TableRow>
+                )}
+                {similarRows.map((r) => (
+                  <TableRow key={r.document_id}>
+                    <TableCell className="text-sm">{r.document_name}</TableCell>
+                    <TableCell className="text-right text-xs">{r.score?.toFixed?.(3) ?? r.score}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={discOpen} onOpenChange={setDiscOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Soll-Daten (JSON)</DialogTitle>
+            </DialogHeader>
+            <Textarea
+              value={discExpected}
+              onChange={(e) => setDiscExpected(e.target.value)}
+              rows={10}
+              className="font-mono text-xs"
+            />
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setDiscOpen(false)}>
+                Abbrechen
+              </Button>
+              <Button type="button" onClick={() => void runValidateDiscrepancy()} disabled={!!aiBusy}>
+                Prüfen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AdminContentWrapper>
     </AdminLayout>
   );

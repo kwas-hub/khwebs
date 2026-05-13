@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.pdf-ocr]
 verify_jwt = true
+
+[functions.ai-tenant]
+verify_jwt = true
