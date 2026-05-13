@@ -4,12 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Newspaper } from "lucide-react";
 import { useTenant } from "@/contexts/TenantContext";
+import { AdminPageHeader, AdminCard, AdminSection, AdminContentWrapper, AdminFieldGroup } from "@/components/admin";
 
 type Block = {
   id: string;
@@ -36,7 +36,7 @@ const News = () => {
     const { data, error } = await supabase
       .from("content_blocks")
       .select("*")
-      .eq("tenant_id", currentTenant.id)  // 🔑 Nur Daten des aktuellen Mandanten laden
+      .eq("tenant_id", currentTenant.id)
       .order("position", { ascending: true });
     
     if (error) {
@@ -49,7 +49,7 @@ const News = () => {
 
   useEffect(() => { 
     load(); 
-  }, [currentTenant]); // 🔑 Bei Mandanten-Wechsel neu laden
+  }, [currentTenant]);
 
   const addBlock = async () => {
     if (!currentTenant) {
@@ -62,7 +62,7 @@ const News = () => {
       content: "",
       published: false,
       position: blocks.length,
-      tenant_id: currentTenant.id,  // 🔑 Mandant zuweisen
+      tenant_id: currentTenant.id,
     });
     
     if (error) {
@@ -73,27 +73,27 @@ const News = () => {
   };
 
   const updateBlock = async (id: string, patch: Partial<Block>) => {
-    // Optimistisches Update
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
     
     const { error } = await supabase
       .from("content_blocks")
       .update(patch)
       .eq("id", id)
-      .eq("tenant_id", currentTenant?.id); // 🔑 Sicherheitshalber auch tenant_id prüfen
+      .eq("tenant_id", currentTenant?.id);
     
     if (error) {
       toast.error(error.message);
-      load(); // Bei Fehler neu laden
+      load();
     }
   };
 
   const deleteBlock = async (id: string) => {
+    if (!confirm("Diesen Bereich wirklich löschen?")) return;
     const { error } = await supabase
       .from("content_blocks")
       .delete()
       .eq("id", id)
-      .eq("tenant_id", currentTenant?.id); // 🔑 Sicherheitshalber tenant_id prüfen
+      .eq("tenant_id", currentTenant?.id);
     
     if (error) {
       toast.error(error.message);
@@ -102,88 +102,90 @@ const News = () => {
     }
   };
 
-  // Keine Admin-Rechte? Dann keine Bearbeitung erlauben
-  const canEdit = isTenantAdmin;
-
   if (!currentTenant) {
     return (
       <AdminLayout>
-        <div className="max-w-4xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold">Aktuelle News</h1>
-          </div>
-          <Card className="p-12 text-center text-muted-foreground">
+        <AdminContentWrapper>
+          <AdminPageHeader icon={Newspaper} title="Aktuelle News" />
+          <AdminCard className="p-12 text-center text-muted-foreground">
             <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
-          </Card>
-        </div>
+          </AdminCard>
+        </AdminContentWrapper>
       </AdminLayout>
     );
   }
 
   return (
     <AdminLayout>
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-3xl font-bold">Aktuelle News</h1>
-            <p className="text-sm text-muted-foreground">
-              Mandant: <span className="font-medium">{currentTenant.name}</span>
-            </p>
-          </div>
-          {canEdit && (
+      <AdminContentWrapper>
+        <AdminPageHeader 
+          icon={Newspaper} 
+          title="Aktuelle News" 
+          description={`Verwalte die Inhalte für ${currentTenant.name}`}
+          actions={isTenantAdmin && (
             <Button onClick={addBlock}>
               <Plus className="mr-2 h-4 w-4" />
               Neuer Bereich
             </Button>
           )}
-        </div>
+        />
         
         {loading ? (
-          <div className="text-center py-12 text-muted-foreground">Lade News...</div>
+          <div className="text-center py-12 text-muted-foreground animate-pulse">Lade News...</div>
         ) : (
-          <div className="space-y-4">
+          <AdminSection spacing="md">
             {blocks.map((block) => (
-              <Card key={block.id} className="p-6 space-y-4">
-                <Input 
-                  value={block.title} 
-                  onChange={(e) => updateBlock(block.id, { title: e.target.value })} 
-                  placeholder="Titel" 
-                  className="font-semibold"
-                  disabled={!canEdit}
-                />
-                <Textarea 
-                  value={block.content} 
-                  onChange={(e) => updateBlock(block.id, { content: e.target.value })} 
-                  placeholder="Inhalt..." 
-                  rows={6}
-                  disabled={!canEdit}
-                />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+              <AdminCard 
+                key={block.id}
+                title={block.title || "Unbenannter Bereich"}
+                actions={isTenantAdmin && (
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => deleteBlock(block.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+                footer={
+                  <div className="flex items-center gap-3">
                     <Switch 
                       checked={block.published} 
                       onCheckedChange={(v) => updateBlock(block.id, { published: v })}
-                      disabled={!canEdit}
+                      disabled={!isTenantAdmin}
                     />
-                    <Label>{block.published ? "Veröffentlicht" : "Privat"}</Label>
+                    <Label className="text-xs font-bold uppercase">{block.published ? "Veröffentlicht" : "Privat"}</Label>
                   </div>
-                  {canEdit && (
-                    <Button variant="destructive" size="sm" onClick={() => deleteBlock(block.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                }
+              >
+                <div className="space-y-4">
+                  <AdminFieldGroup label="Titel">
+                    <Input 
+                      value={block.title} 
+                      onChange={(e) => updateBlock(block.id, { title: e.target.value })} 
+                      placeholder="Titel des Bereichs" 
+                      disabled={!isTenantAdmin}
+                    />
+                  </AdminFieldGroup>
+                  <AdminFieldGroup label="Inhalt">
+                    <Textarea 
+                      value={block.content} 
+                      onChange={(e) => updateBlock(block.id, { content: e.target.value })} 
+                      placeholder="Schreibe hier deinen Text..." 
+                      rows={6}
+                      disabled={!isTenantAdmin}
+                    />
+                  </AdminFieldGroup>
                 </div>
-              </Card>
+              </AdminCard>
             ))}
             
             {blocks.length === 0 && (
-              <p className="text-center text-muted-foreground py-12">
-                Noch keine Bereiche. Klicke auf „Neuer Bereich".
-              </p>
+              <div className="text-center py-20 bg-muted/10 rounded-3xl border-2 border-dashed border-border/50">
+                <Newspaper className="h-12 w-12 mx-auto mb-4 text-muted-foreground/20" />
+                <p className="text-muted-foreground">Noch keine News-Bereiche angelegt.</p>
+                {isTenantAdmin && <Button variant="outline" className="mt-4" onClick={addBlock}>Ersten Bereich erstellen</Button>}
+              </div>
             )}
-          </div>
+          </AdminSection>
         )}
-      </div>
+      </AdminContentWrapper>
     </AdminLayout>
   );
 };
