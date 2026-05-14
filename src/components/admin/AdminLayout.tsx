@@ -19,7 +19,7 @@ const allItems = [
   { title: "Aktuelle News", url: "/admin/news", icon: Newspaper, end: false, roles: ["admin", "editor", "guest"] as AppRole[] },
   { title: "Termine", url: "/admin/termine", icon: CalendarDays, end: false, roles: ["admin", "editor", "guest"] as AppRole[] },
   { title: "Formulare", url: "/admin/formulare", icon: FileText, end: false, roles: ["admin", "editor"] as AppRole[] },
-  { title: "AI", url: "/admin/ai", icon: Sparkles, end: false, roles: ["admin", "editor"] as AppRole[] },
+  { title: "AI Dokumente", url: "/admin/ai", icon: Sparkles, end: false, roles: ["admin", "editor"] as AppRole[] },
   { title: "API", url: "/admin/api-settings", icon: Plug, end: false, roles: ["admin", "editor"] as AppRole[] },
   { title: "Mandanten", url: "/admin/tenants", icon: Building2, end: false, roles: ["admin"] as AppRole[] },
   { title: "Users", url: "/admin/users", icon: UsersIcon, end: false, roles: ["admin"] as AppRole[] },
