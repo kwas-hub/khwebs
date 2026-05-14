@@ -1175,7 +1175,7 @@ const AIPage = () => {
     return (
       <AdminLayout>
         <AdminContentWrapper>
-          <AdminPageHeader icon={Sparkles} title="Dokumente AI / OCR" description="PDFs hochladen, Seiten bearbeiten und Texte extrahieren." />
+          <AdminPageHeader icon={Sparkles} title="Dokumente AI / OCR" description="Dokumente intelligent verwalten." />
           <AdminCard className="p-12 text-center text-muted-foreground">
             <Sparkles className="h-12 w-12 mx-auto mb-4 opacity-30" />
             <p>Kein Mandant ausgewählt. Bitte wählen Sie einen Mandanten aus dem Dropdown-Menü oben rechts.</p>
