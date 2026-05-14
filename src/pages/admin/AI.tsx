@@ -1190,8 +1190,8 @@ const AIPage = () => {
       <AdminContentWrapper maxWidth="full">
         <AdminPageHeader 
           icon={Sparkles} 
-          title="AI / OCR" 
-          description={`PDFs hochladen, Seiten bearbeiten und Texte extrahieren – Mandant: ${currentTenant.name}`}
+          title="AI Dokumente" 
+          description={`Dokumente intelligent verwalten – Mandant: ${currentTenant.name}`}
           badge={`${docs.length} Dokument(e)`}
           actions={
             <div className="flex gap-2">
