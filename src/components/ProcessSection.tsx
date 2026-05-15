@@ -2,12 +2,13 @@ import { motion } from "framer-motion";
 import { 
   CheckCircle2, 
   Sparkles, 
-  BarChart3, 
-  Users, 
-  Shield, 
-  Zap, 
-  Clock, 
-  Award,
+  FileText, 
+  Calendar, 
+  Newspaper, 
+  Bot,
+  Shield,
+  Zap,
+  Users,
   ArrowRight,
   Star,
   Mail,
@@ -17,9 +18,11 @@ import {
   Github,
   Twitter,
   Linkedin,
-  FileText,
-  Calendar,
-  MessageSquare
+  MessageSquare,
+  Upload,
+  Scissors,
+  Eye,
+  Settings
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,7 +32,6 @@ import { useState } from "react";
 const HeroSection = () => {
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-background via-background to-primary/5 pt-32 pb-20 md:pt-40 md:pb-28">
-      {/* Hintergrund-Effekte */}
       <div className="absolute inset-0">
         <div className="absolute top-20 left-10 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute bottom-10 right-10 h-96 w-96 rounded-full bg-primary/5 blur-3xl" />
@@ -37,7 +39,6 @@ const HeroSection = () => {
 
       <div className="relative mx-auto max-w-6xl px-6">
         <div className="grid items-center gap-12 lg:grid-cols-2">
-          {/* Linke Seite: Text */}
           <motion.div
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
@@ -45,64 +46,51 @@ const HeroSection = () => {
           >
             <div className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-xs font-medium text-primary">
               <Sparkles className="mr-1.5 h-3 w-3" />
-              Digitale Exzellenz für Ihre Marke
+              All-in-One Verwaltungsplattform
             </div>
             <h1 className="mt-6 text-4xl font-bold tracking-tight md:text-6xl lg:text-7xl">
-              Wir bringen Ihre
+              Alles aus einer
               <span className="block bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-                Ideen zum Fliegen
+                Hand
               </span>
             </h1>
             <p className="mt-6 text-lg text-muted-foreground">
-              Maßgeschneiderte Softwarelösungen für anspruchsvolle Unternehmen.
-              Von der Strategie bis zur Umsetzung – wir begleiten Sie auf Ihrem
-              Weg zur digitalen Spitze.
+              Formulare, Termine, News, Dokumentenmanagement mit KI-gestützter OCR – 
+              alles in einer modernen, mandantenfähigen Plattform.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <button className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:scale-105">
-                Kostenloses Beratungsgespräch
+                Kostenlos testen
                 <ArrowRight className="ml-2 h-4 w-4" />
               </button>
               <button className="inline-flex items-center justify-center rounded-full border border-border bg-background px-6 py-3 font-semibold transition-all hover:bg-muted">
-                Referenzen ansehen
+                Demo ansehen
               </button>
-            </div>
-            <div className="mt-8 flex items-center gap-6">
-              <div className="flex -space-x-2">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-8 w-8 rounded-full border-2 border-background bg-gradient-to-br from-primary/60 to-primary/20" />
-                ))}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                <span className="font-bold text-foreground">250+</span> zufriedene Kunden
-              </div>
             </div>
           </motion.div>
 
-          {/* Rechte Seite: Bild */}
           <motion.div
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             className="relative"
           >
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border/50">
               <img
-                src="https://picsum.photos/id/20/600/500"
-                alt="Team arbeitet an Software"
+                src="https://picsum.photos/id/0/600/500"
+                alt="Dashboard Vorschau"
                 className="w-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
             </div>
-            {/* Floating Card */}
             <div className="absolute -bottom-6 -left-6 rounded-xl bg-background/90 backdrop-blur-sm p-4 shadow-lg border border-border/50">
               <div className="flex items-center gap-3">
                 <div className="rounded-full bg-primary/10 p-2">
                   <CheckCircle2 className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <div className="text-sm font-semibold">100% Kundenzufriedenheit</div>
-                  <div className="text-xs text-muted-foreground">Basierend auf 50+ Bewertungen</div>
+                  <div className="text-sm font-semibold">KI-gestützte OCR</div>
+                  <div className="text-xs text-muted-foreground">Dokumente automatisch erfassen</div>
                 </div>
               </div>
             </div>
@@ -114,40 +102,37 @@ const HeroSection = () => {
 };
 
 // ============================================
-// LOGO CLOUD / KUNDEN
+// FEATURES - DAS SYSTEM IM DETAIL
 // ============================================
-const LogoCloud = () => {
-  const logos = [
-    "Company 1", "Company 2", "Company 3", "Company 4", "Company 5", "Company 6"
-  ];
-  return (
-    <section className="border-y border-border/50 py-12">
-      <div className="mx-auto max-w-6xl px-6">
-        <p className="mb-8 text-center text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Vertrauen von führenden Unternehmen
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
-          {logos.map((logo, i) => (
-            <div key={i} className="text-2xl font-bold text-muted-foreground/50 transition-all hover:text-muted-foreground">
-              {logo}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-};
-
-// ============================================
-// FEATURES GRID
-// ============================================
-const features = [
-  { icon: Zap, title: "Blitzschnell", desc: "Optimierte Performance für beste User Experience", color: "from-yellow-500 to-orange-500" },
-  { icon: Shield, title: "Sicher", desc: "Datenschutz und Sicherheit auf höchstem Niveau", color: "from-blue-500 to-cyan-500" },
-  { icon: BarChart3, title: "Skalierbar", desc: "Wächst mit Ihren Anforderungen", color: "from-green-500 to-emerald-500" },
-  { icon: Users, title: "Benutzerfreundlich", desc: "Intuitive Bedienung für alle Nutzer", color: "from-purple-500 to-pink-500" },
-  { icon: Clock, title: "24/7 Support", desc: "Rund um die Uhr für Sie da", color: "from-red-500 to-rose-500" },
-  { icon: Award, title: "Ausgezeichnet", desc: "Preisgekrönte Lösungen", color: "from-indigo-500 to-violet-500" },
+const systemFeatures = [
+  { 
+    icon: FileText, 
+    title: "Dynamische Formulare", 
+    desc: "Erstellen Sie beliebige Formulare mit Drag & Drop. Inkl. E-Mail-Benachrichtigungen und Statusverwaltung.",
+    image: "https://picsum.photos/id/26/400/300",
+    tags: ["Drag & Drop", "E-Mail Templates", "Status-Tracking"]
+  },
+  { 
+    icon: Calendar, 
+    title: "Terminverwaltung", 
+    desc: "Termine erfassen, zuweisen und verwalten. Mit Kalenderansicht und automatischen Erinnerungen.",
+    image: "https://picsum.photos/id/29/400/300",
+    tags: ["Kalender", "Aufgaben", "Erinnerungen"]
+  },
+  { 
+    icon: Newspaper, 
+    title: "News & Content", 
+    desc: "Verwalten Sie News-Bereiche mit HTML-Editor, Veröffentlichungsstatus und Positionierung.",
+    image: "https://picsum.photos/id/20/400/300",
+    tags: ["HTML-Editor", "Veröffentlichung", "Sortierung"]
+  },
+  { 
+    icon: Bot, 
+    title: "KI-Dokumentenanalyse", 
+    desc: "PDFs hochladen, OCR durchführen, Dokumente klassifizieren und Stammdaten extrahieren.",
+    image: "https://picsum.photos/id/24/400/300",
+    tags: ["OCR", "Klassifikation", "Extraktion"]
+  },
 ];
 
 const FeaturesSection = () => {
@@ -160,30 +145,43 @@ const FeaturesSection = () => {
           viewport={{ once: true }}
           className="mb-16 text-center"
         >
-          <p className="mb-3 font-mono text-sm tracking-widest text-primary">WARUM WIR</p>
+          <p className="mb-3 font-mono text-sm tracking-widest text-primary">FUNKTIONEN</p>
           <h2 className="text-3xl font-bold md:text-5xl">
-            Das zeichnet uns <span className="text-gradient">aus</span>
+            Alles, was Sie <span className="text-gradient">brauchen</span>
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-            Wir kombinieren modernste Technologie mit jahrelanger Erfahrung, um Ihnen die besten Lösungen zu bieten.
+            Eine Plattform – alle Tools. Von Formularen bis zur KI-gestützten Dokumentenverarbeitung.
           </p>
         </motion.div>
 
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {features.map((feature, i) => (
+        <div className="space-y-24">
+          {systemFeatures.map((feature, i) => (
             <motion.div
               key={feature.title}
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.1 }}
-              className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card p-6 transition-all hover:border-primary/50 hover:shadow-lg"
+              transition={{ duration: 0.6, delay: i * 0.1 }}
+              className={`grid items-center gap-12 md:grid-cols-2 ${i % 2 === 1 ? 'md:grid-flow-dense' : ''}`}
             >
-              <div className={`mb-4 inline-flex rounded-xl bg-gradient-to-br ${feature.color} p-3`}>
-                <feature.icon className="h-6 w-6 text-white" />
+              <div className={i % 2 === 1 ? 'md:col-start-2' : ''}>
+                <div className="inline-flex rounded-xl bg-primary/10 p-3 mb-4">
+                  <feature.icon className="h-6 w-6 text-primary" />
+                </div>
+                <h3 className="text-2xl font-bold md:text-3xl">{feature.title}</h3>
+                <p className="mt-4 text-muted-foreground">{feature.desc}</p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {feature.tags.map((tag) => (
+                    <span key={tag} className="rounded-full bg-muted px-3 py-1 text-xs">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <h3 className="mb-2 text-xl font-semibold">{feature.title}</h3>
-              <p className="text-muted-foreground">{feature.desc}</p>
+              <div className={`relative rounded-2xl overflow-hidden shadow-xl border border-border/50 ${i % 2 === 1 ? 'md:col-start-1' : ''}`}>
+                <img src={feature.image} alt={feature.title} className="w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent" />
+              </div>
             </motion.div>
           ))}
         </div>
@@ -193,7 +191,72 @@ const FeaturesSection = () => {
 };
 
 // ============================================
-// PROZESS SECTION (aus deinem Code)
+// KI/OCR HIGHLIGHTS
+// ============================================
+const ocrHighlights = [
+  { icon: Upload, title: "PDF hochladen", desc: "Drag & Drop oder klassischer Upload" },
+  { icon: Eye, title: "Seiten bearbeiten", desc: "Drehen, löschen, sortieren" },
+  { icon: Sparkles, title: "OCR durchführen", desc: "Texte automatisch erkennen" },
+  { icon: Scissors, title: "Dokumente trennen", desc: "Intelligente Split-Erkennung" },
+  { icon: Settings, title: "Dokumenttypen", desc: "Mit Schlagwörtern klassifizieren" },
+  { icon: Bot, title: "KI-Extraktion", desc: "Rechnungsdaten automatisch auslesen" },
+];
+
+const OcrSection = () => {
+  return (
+    <section className="bg-muted/30 py-32">
+      <div className="mx-auto max-w-6xl px-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="mb-16 text-center"
+        >
+          <p className="mb-3 font-mono text-sm tracking-widest text-primary">KI & OCR</p>
+          <h2 className="text-3xl font-bold md:text-5xl">
+            Intelligente <span className="text-gradient">Dokumentenverarbeitung</span>
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
+            Mit unserer KI-gestützten OCR erkennen und klassifizieren Sie Dokumente automatisch.
+          </p>
+        </motion.div>
+
+        <div className="grid gap-6 md:grid-cols-3 lg:grid-cols-6">
+          {ocrHighlights.map((item, i) => (
+            <motion.div
+              key={item.title}
+              initial={{ opacity: 0, scale: 0.9 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: i * 0.05 }}
+              className="text-center"
+            >
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                <item.icon className="h-6 w-6 text-primary" />
+              </div>
+              <h4 className="text-sm font-semibold">{item.title}</h4>
+              <p className="mt-1 text-xs text-muted-foreground">{item.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="mt-12 rounded-2xl border border-border/50 bg-card p-6 text-center"
+        >
+          <p className="text-sm text-muted-foreground">
+            ✨ Neu: Konfigurierbare KI-Provider (OpenAI, Groq, Ollama, Google, Mistral, DeepSeek)
+          </p>
+        </motion.div>
+      </div>
+    </section>
+  );
+};
+
+// ============================================
+// PROZESS SECTION (dein bestehender Code)
 // ============================================
 const steps = [
   { num: "01", title: "Analyse", desc: "Bestandsaufnahme Ihrer aktuellen Prozesse, Systeme und Ziele." },
@@ -204,7 +267,7 @@ const steps = [
 
 const ProcessSection = () => {
   return (
-    <section id="prozess" className="border-t border-border py-32 bg-muted/30">
+    <section id="prozess" className="border-t border-border py-32">
       <div className="mx-auto max-w-6xl px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -242,60 +305,7 @@ const ProcessSection = () => {
 };
 
 // ============================================
-// TESTIMONIALS / REFERENZEN
-// ============================================
-const testimonials = [
-  { name: "Anna Schmidt", role: "CEO, TechCorp", text: "Die Zusammenarbeit war hervorragend. Die Lösung hat unsere Erwartungen übertroffen.", rating: 5 },
-  { name: "Michael Weber", role: "CTO, Innovate GmbH", text: "Professionelle Beratung und exzellente Umsetzung. Absolute Weiterempfehlung!", rating: 5 },
-  { name: "Sarah Meyer", role: "Head of Digital", text: "Die Plattform hat unsere Prozesse revolutioniert. Vielen Dank an das gesamte Team.", rating: 5 },
-];
-
-const TestimonialsSection = () => {
-  return (
-    <section className="py-32">
-      <div className="mx-auto max-w-6xl px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="mb-16 text-center"
-        >
-          <p className="mb-3 font-mono text-sm tracking-widest text-primary">REFERENZEN</p>
-          <h2 className="text-3xl font-bold md:text-5xl">
-            Was unsere <span className="text-gradient">Kunden sagen</span>
-          </h2>
-        </motion.div>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          {testimonials.map((t, i) => (
-            <motion.div
-              key={t.name}
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.1 }}
-              className="rounded-2xl border border-border/50 bg-card p-6"
-            >
-              <div className="flex gap-1 mb-4">
-                {[...Array(t.rating)].map((_, i) => (
-                  <Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />
-                ))}
-              </div>
-              <p className="mb-4 text-muted-foreground">"{t.text}"</p>
-              <div>
-                <p className="font-semibold">{t.name}</p>
-                <p className="text-xs text-muted-foreground">{t.role}</p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-};
-
-// ============================================
-// KONTAKTFORMULAR + NEWS + FORMULARE (Dein bestehender Bereich)
+// KONTAKT & NEWS (wie gewünscht)
 // ============================================
 const ContactForm = () => {
   const [formData, setFormData] = useState({ name: "", email: "", message: "" });
@@ -350,14 +360,12 @@ const ContactForm = () => {
   );
 };
 
-// Demo News Items
 const newsItems = [
-  { id: 1, title: "Neue Funktion: KI-gestützte Dokumentenanalyse", date: "15.05.2024", excerpt: "Unsere neue KI-Funktion revolutioniert die Art, wie Sie Dokumente verwalten." },
-  { id: 2, title: "Ausgezeichnet als bester Softwarepartner 2024", date: "10.05.2024", excerpt: "Wir freuen uns über die Auszeichnung als bester Softwarepartner im Mittelstand." },
-  { id: 3, title: "Webinar: Digitale Transformation", date: "05.05.2024", excerpt: "Nehmen Sie an unserem kostenlosen Webinar teil und lernen Sie die neuesten Trends kennen." },
+  { id: 1, title: "Neue KI-Funktionen verfügbar", date: "15.05.2024", excerpt: "Dokumentenklassifikation und Stammdatenextraktion jetzt mit konfigurierbaren KI-Providern." },
+  { id: 2, title: "Mandantenfähigkeit released", date: "10.05.2024", excerpt: "Unterstützung für mehrere Mandanten mit vollständiger Isolation der Daten." },
+  { id: 3, title: "OCR-Verbesserungen", date: "05.05.2024", excerpt: "Bessere Texterkennung und Unterstützung für verschiedene Dokumententypen." },
 ];
 
-// Demo Formulare
 const forms = [
   { id: 1, title: "Kontaktanfrage", description: "Allgemeine Anfragen an unser Team", submissions: 24 },
   { id: 2, title: "Support-Ticket", description: "Technischer Support und Hilfe", submissions: 18 },
@@ -381,7 +389,6 @@ const ContactAndNewsSection = () => {
         </motion.div>
 
         <div className="grid gap-8 lg:grid-cols-2">
-          {/* Linke Spalte: Kontaktformular */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -414,9 +421,7 @@ const ContactAndNewsSection = () => {
             </div>
           </motion.div>
 
-          {/* Rechte Spalte: News + Formulare */}
           <div className="space-y-6">
-            {/* News Bereich */}
             <motion.div
               initial={{ opacity: 0, x: 30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -445,7 +450,6 @@ const ContactAndNewsSection = () => {
               </div>
             </motion.div>
 
-            {/* Dynamische Formulare */}
             <motion.div
               initial={{ opacity: 0, x: 30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -491,10 +495,10 @@ const Footer = () => {
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="h-6 w-6 text-primary" />
-              <span className="text-lg font-bold">Brand</span>
+              <span className="text-lg font-bold">khwebs</span>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              Moderne Softwarelösungen für anspruchsvolle Unternehmen.
+              Ihre Plattform für Formulare, Termine, News und KI-gestützte Dokumentenverarbeitung.
             </p>
             <div className="mt-4 flex gap-3">
               <Github className="h-5 w-5 text-muted-foreground hover:text-foreground cursor-pointer" />
@@ -505,9 +509,10 @@ const Footer = () => {
           <div>
             <h4 className="mb-3 font-semibold">Produkte</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#" className="hover:text-foreground">Übersicht</a></li>
-              <li><a href="#" className="hover:text-foreground">Features</a></li>
-              <li><a href="#" className="hover:text-foreground">Preise</a></li>
+              <li><a href="#" className="hover:text-foreground">Formulare</a></li>
+              <li><a href="#" className="hover:text-foreground">Termine</a></li>
+              <li><a href="#" className="hover:text-foreground">News</a></li>
+              <li><a href="#" className="hover:text-foreground">KI / OCR</a></li>
             </ul>
           </div>
           <div>
@@ -528,7 +533,7 @@ const Footer = () => {
           </div>
         </div>
         <div className="mt-8 border-t border-border/50 pt-8 text-center text-sm text-muted-foreground">
-          &copy; 2024 Brand. Alle Rechte vorbehalten.
+          &copy; 2024 khwebs. Alle Rechte vorbehalten.
         </div>
       </div>
     </footer>
@@ -536,16 +541,15 @@ const Footer = () => {
 };
 
 // ============================================
-// MAIN PAGE KOMPONENTE
+// MAIN PAGE
 // ============================================
 const MarketingLandingPage = () => {
   return (
     <main className="min-h-screen bg-background">
       <HeroSection />
-      <LogoCloud />
       <FeaturesSection />
+      <OcrSection />
       <ProcessSection />
-      <TestimonialsSection />
       <ContactAndNewsSection />
       <Footer />
     </main>
