@@ -1191,7 +1191,7 @@ const AIPage = () => {
         <AdminPageHeader 
           icon={Sparkles} 
           title="AI Dokumente" 
-          description={`Dokumente intelligent verwalten – Mandant: ${currentTenant.name}`}
+          description={`Dokumente intelligent verwalten`}
           badge={`${docs.length} Dokument(e)`}
           actions={
             <div className="flex gap-2">
